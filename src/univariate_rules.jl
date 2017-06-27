@@ -1,24 +1,28 @@
 abstract type QuadratureRule end
 
 abstract type NestedQuadratureRule <: QuadratureRule end
+abstract type UnitNestedRule <: NestedQuadratureRule end
+abstract type UnconstrainedNestedRule <: NestedQuadratureRule end
 
-struct KronrodPatterson <: NestedQuadratureRule
+struct KronrodPatterson <: UnitNestedRule
 #  nw::Dict{Int64,Tuple{Float64,Float64}}
   n::Dict{Int64,Float64}
   w::Dict{Int64,Float64}
   l::Int64
 end
 function KronrodPatterson(l::Int)
-  load("rules/KronrodPatterson/sgk_"*string(l)*".jld")["kp"]
+  dict = load(Pkg.dir("SparseQuadratureGrids")*"/src/rules/KronrodPatterson/l_"*string(l)*".jld")
+  KronrodPatterson(dict["n"], dict["w"], l)
 end
-struct GenzKeister <: NestedQuadratureRule
+struct GenzKeister <: UnconstrainedNestedRule
 #  nw::Dict{Int64,Tuple{Float64,Float64}}
   n::Dict{Int64,Float64}
   w::Dict{Int64,Float64}
   l::Int64
 end
 function GenzKeister(l::Int)
-  load("rules/GenzKeister/sgk_"*string(l)*".jld")["gk"]
+  dict = load(Pkg.dir("SparseQuadratureGrids")*"/src/rules/GenzKeister/l_"*string(l)*".jld")
+  GenzKeister(dict["n"], dict["w"], l)
 end
 function default(q::DataType)
   if q == GenzKeister

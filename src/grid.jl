@@ -95,7 +95,9 @@ end
       (@nref $p out i) = prod(get_Δ_weight!.( Grid, arg_indices, (@ntuple $p i) ))
     end
     Grid.Δ_prods[arg_indices] = out
-    Grid.grid += out
+    for i ∈ keys(out.w)
+      Grid.grid.w[i] = get(Grid.grid.w, i, 0.0) + out.w[i]
+    end
   end
 end
 
