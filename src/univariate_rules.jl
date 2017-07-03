@@ -24,11 +24,26 @@ function GenzKeister(l::Int)
   dict = load(Pkg.dir("SparseQuadratureGrids")*"/src/rules/GenzKeister/l_"*string(l)*".jld")
   GenzKeister(dict["n"], dict["w"], l)
 end
+function delay_sequence(base_seq)
+  seq = [1]
+  pol_acc = 3
+  seq_i = 2
+  approx_pol_ac(x::Int) = round(Int, 3x/2+1/2)
+  for i ∈ 2:length(base_seq)
+    while approx_pol_ac(base_seq[i]) >= pol_acc
+      push!(seq, base_seq[i])
+      pol_acc += 2
+    end
+  end
+  seq
+end
 function default(q::DataType)
   if q == GenzKeister
     return [1, 3, 9, 19, 35, 103]
+    #return [1, 3, 3, 9, 9, 9, 9, 19, 19, 19, 19, 19, 19, 19, 19, 35, 35, 35, 35, 35, 35, 35, 35, 35, 35, 35, 35, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103]
   elseif q == KronrodPatterson
     return [1, 3, 7, 15, 31, 63]
+    #return [1, 3, 3, 7, 7, 7, 15, 15, 15, 15, 15, 15, 31, 31, 31, 31, 31, 31, 31, 31, 31, 31, 31, 31, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63]
   else
     throw("Default unimplemented for grid type " * string(q) * ".")
   end
