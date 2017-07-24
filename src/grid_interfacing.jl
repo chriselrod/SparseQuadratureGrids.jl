@@ -53,6 +53,8 @@ function set_baseline!{p}(Grid::SplitWeights{p, GenzKeister})
   Grid.weight_sum[2] = sum(Grid.weights_negative)
 end
 function set_baseline!{p}(Grid::SplitWeights{p, KronrodPatterson})
+  fill!(Grid.baseline_weights_positive, 0.0)
+  fill!(Grid.baseline_weights_negative, 0.0)
   Grid.weight_sum[1] = sum(Grid.weights_positive)
   Grid.weight_sum[2] = sum(Grid.weights_negative)
 end
