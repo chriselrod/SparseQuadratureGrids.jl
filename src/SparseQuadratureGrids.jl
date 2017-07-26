@@ -5,6 +5,7 @@ using Base.Cartesian
 using StaticArrays
 
 import Base.length
+import Base.getindex
 
 export  SplitWeights,
         QuadratureRule,
@@ -12,7 +13,9 @@ export  SplitWeights,
         GenzKeister,
         NestedGrid,
         calc_Δ_prod!,
-        smolyak!
+        smolyak!,
+        FlattenedGrid,
+        GridContainer
 
 include("univariate_rules.jl")
 include("grid.jl")
