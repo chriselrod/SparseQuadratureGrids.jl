@@ -4,16 +4,16 @@ end
 function Δprod(p)
   Δprod{p}(Dict{SVector{p, Int64},Float64}())
 end
-function Base.:+{p}(x::Δprod{p}, y::Δprod{p})
+function Base.:+(x::Δprod{p}, y::Δprod{p}) where {p}
   Δprod(x.w + y.w)
 end
-function Base.:+{p}(x::Δprod{p}...)
+function Base.:+(x::Δprod{p}...) where {p}
   Δprod(sum(x.w))
 end
-function Base.setindex!{p}(A::Δprod{p}, x::Float64, i::Int64...)
+function Base.setindex!(A::Δprod{p}, x::Float64, i::Int64...) where {p}
   A.w[SVector{p,Int64}(i)] = x
 end
-function Base.getindex{p}(A::Δprod{p}, i::SVector{p,Int64})
+function Base.getindex(A::Δprod{p}, i::SVector{p,Int64}) where {p}
   A.w[i]
 end
 function Base.keys(A::Δprod)
@@ -57,7 +57,7 @@ function get_Q!(Grid::NestedGrid{p, q}, i::Int) where {p, q <: NestedQuadratureR
     return Grid.Qs[i]
   end
 end
-function get_Δ!{p, q <: NestedQuadratureRule}(Grid::NestedGrid{p,q}, i::Int)#
+function get_Δ!(Grid::NestedGrid{p,q}, i::Int) where {p, q <: NestedQuadratureRule}
   try
     return Grid.Δs[i]
   catch
@@ -75,7 +75,7 @@ end
 function get_Δ_weight!(Grid::NestedGrid, i::Int, j::Int)
   get_Δ!(Grid, i).w[j]
 end
-function get_Δ_weight!{p}(Grid::NestedGrid, sv::SVector{p,Int64}, tup::Tuple)
+function get_Δ_weight!(Grid::NestedGrid, sv::SVector{p,Int64}, tup::Tuple) where {p}
   out = 1.0
   for i ∈ 1:p
     out *= get_Δ!(Grid, sv[i]).w[tup[i]]
@@ -84,7 +84,7 @@ function get_Δ_weight!{p}(Grid::NestedGrid, sv::SVector{p,Int64}, tup::Tuple)
 end
 #get_Δprod takes a vector of rule-sizes
 #Δprods themselves are dictionaries with keys that have ints for node location.
-function get_Δ_prod!{p,q<:NestedQuadratureRule}(Grid::NestedGrid{p,q}, i::SVector{p, Int64})
+function get_Δ_prod!(Grid::NestedGrid{p,q}, i::SVector{p, Int64}) where {p,q<:NestedQuadratureRule}
   try
     return Grid.Δ_prods[i]
   catch
@@ -93,7 +93,7 @@ function get_Δ_prod!{p,q<:NestedQuadratureRule}(Grid::NestedGrid{p,q}, i::SVect
 end
 
 
-@generated function calc_Δ_prod!{p,q<:NestedQuadratureRule}(Grid::NestedGrid{p,q}, arg_indices::SVector{p,Int64})
+@generated function calc_Δ_prod!(Grid::NestedGrid{p,q}, arg_indices::SVector{p,Int64}) where {p,q<:NestedQuadratureRule}
   quote
     out = Δprod($p)
     @nloops $p i dim -> begin

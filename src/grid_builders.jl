@@ -1,4 +1,4 @@
-@generated function smolyak!{p,q<:NestedQuadratureRule}(Grid::NestedGrid{p,q}, l::Int)
+@generated function smolyak!(Grid::NestedGrid{p,q}, l::Int) where {p,q<:NestedQuadratureRule}
   quote
     eval(parse("j_"*string($p+1)*" = "*string(l)))
     eval(parse("s_"*string($p+1)*" = 0"))
@@ -13,7 +13,7 @@
   end
 end
 
-@generated function l2!{p,q<:NestedQuadratureRule}(Grid::NestedGrid{p,q}, l::Int)
+@generated function l2!(Grid::NestedGrid{p,q}, l::Int) where {p,q<:NestedQuadratureRule}
   quote
     eval(parse("j_"*string($p+1)*" = "*string(l)))
     eval(parse("s_"*string($p+1)*" = 0"))
@@ -29,7 +29,7 @@ end
   end
 end
 
-@generated function lx!{p,q<:NestedQuadratureRule}(Grid::NestedGrid{p,q}, l::Int, x::Real)
+@generated function lx!(Grid::NestedGrid{p,q}, l::Int, x::Real) where {p,q<:NestedQuadratureRule}
   quote
     eval(parse("j_"*string($p+1)*" = "*string(l)))
     eval(parse("s_"*string($p+1)*" = 0"))

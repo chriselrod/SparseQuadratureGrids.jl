@@ -49,7 +49,7 @@ function default(q::DataType)
   end
 end
 
-function Base.isless{T <: NestedQuadratureRule}(x::T, y::T)
+function Base.isless(x::T, y::T) where {T <: NestedQuadratureRule}
   x.l < y.l
 end
 
@@ -59,26 +59,26 @@ struct Δ{T <: NestedQuadratureRule}
 end
 
 
-function add_a_to_b{T, R <: Real}(a::Dict{T,R}, b::Dict{T,R})
+function add_a_to_b(a::Dict{T,R}, b::Dict{T,R}) where {T, R <: Real}
   Dict{T,R}(i => b[i] + get(a, i, zero(R)) for i ∈ keys(b))
 end
-function Base.:-{T <: NestedQuadratureRule}(x::T, y::T)
+function Base.:-(x::T, y::T) where {T <: NestedQuadratureRule}
   if x.l >= y.l
     return Δ{T}(x.n, Dict{Int64, Float64}(i => x.w[i] - get(y.w, i, 0.0) for i ∈ keys(x.w)))
   else
     return Δ{T}(y.n, Dict{Int64, Float64}(i => get(x.w,i,0.0) - y.w[i] for i ∈ keys(y.w)))
   end
 end
-function Base.:+{T, R <: Real}(x::Dict{T,R}, y::Dict{T,R})
+function Base.:+(x::Dict{T,R}, y::Dict{T,R}) where {T, R <: Real}
     Dict{T, R}(i => get(x, i, zero(R)) + get(y, i, zero(R)) for i ∈ keys(x) ∪ keys(y))
 end
-function Base.:+{T, R <: Real}(x::Dict{T,R}...)
+function Base.:+(x::Dict{T,R}...) where {T, R <: Real}
   Dict{T, R}(i => sum(get.(x, [i], zero(R))) for i ∈ union(keys.(x)...))
 end
-function Base.:+{T <: NestedQuadratureRule}(x::T, y::T)
+function Base.:+(x::T, y::T) where {T <: NestedQuadratureRule}
   x.l > y.l ? Δ{T}(x.n, add_a_to_b(y.w, x.w)) : Δ{T}(y.n, add_a_to_b(x.w, y.w))
 end
-function Base.:+{T <: NestedQuadratureRule}(x::T...)
+function Base.:+(x::T...) where {T <: NestedQuadratureRule}
   max_q = maximum(x)
   Δ{T}(max_x.n, Dict{Int64, Float64}(i => sum(get.(x, [i], zero(R))) for i ∈ keys(max_x.w)))
 end
