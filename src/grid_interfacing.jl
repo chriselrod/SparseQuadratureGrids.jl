@@ -51,7 +51,7 @@ end
 function mats(g::GridContainer{p,q} where {q}, r::Int) where {p}
   get!(g.mats, r, Array{Float64,2}(p,r))
 end
-GridContainer(p::Int,l::Int,::Type{q},seq::Vector{Int} = default(q)) where {q} = GridContainer{p,q}(Dict{Int,FlattenedGrid{q}}(), zeros(p,p), l, seq, Dict{Int,Array{Float64,2}}())
+GridContainer(p::Int,l::Int = 6,::Type{q} = GenzKeister,seq::Vector{Int} = default(q)) where {q} = GridContainer{p,q}(Dict{Int,FlattenedGrid{q}}(), zeros(p,p), l, seq, Dict{Int,Array{Float64,2}}())
 
 function SplitWeights(p::Int64, total_count::Int64, negative_count::Int64, q::DataType)
   positive_count = total_count - negative_count
