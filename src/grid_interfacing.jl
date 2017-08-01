@@ -20,6 +20,7 @@ function FlattenedGrid(p::Int, l::Int, ::Type{q}, seq::Vector{Int} = default(q))
   smolyak!(grid, l)
   FlattenedGrid(grid)
 end
+
 function FlattenedGrid(Grid::NestedGrid{p,q}) where {p,q<:NestedQuadratureRule}
   n = length(Grid.grid)
   nodes = Array{Float64,2}(p,n)
@@ -37,7 +38,7 @@ function FlattenedGrid(n::Array{Float64,2}, w::Vector{Float64}, b::Vector{Float6
 end
 
 struct GridContainer{p,q}
-  grids::Dict{Int,FlattenedGrid{q}}
+  grids::Dict{Tuple{Int,Int},FlattenedGrid{q}}
   U::Array{Float64,2}
   l::Int
   seq::Vector{Int}
