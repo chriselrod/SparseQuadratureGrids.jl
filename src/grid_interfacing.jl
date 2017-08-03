@@ -1,3 +1,4 @@
+#Why the p in grid interfaces?
 abstract type GridInterface{p,q <: QuadratureRule} end
 struct SplitWeights{p,q<: QuadratureRule}
   nodes_positive::Array{Float64,2}
@@ -28,12 +29,13 @@ struct Smolyak{q, p, F, T} <: aPrioriBuild{q}
   l::Int
   f::Function
 end
+
 struct GridContainer{p,q} <: GridInterface{p,q}
   grids::Dict{Int, FlattenedGrid{q}}
   U::Array{Float64,2}
   l::Int
   seq::Vector{Int}
-  mats::Dict{Int,Array{Float64,2}}
+  mats::Dict{Int, Array{Float64,2}}
 end
 struct GridVessel{p, q, B <: GridBuild} <: GridInterface{p,q}
   grids::Dict{Tuple{Int,Int}, FlattenedGrid{q}}
@@ -51,8 +53,6 @@ function AdaptiveConstrained(p::Int, F::Function, n::Int = 10_000, q::Quadrature
   construct!(ab, n)
   ab
 end
-
-
 function SmolyakConstrained(p::Int, F::Function, q::QuadratureRule = GenzKeister, l::Int = 6, seq::Vector{Int} = default(q))
   grid = NestedGrid(p, q, seq)
   smolyak!(grid, l)
@@ -103,35 +103,41 @@ function normalize!(g::FlattenedGrid)
   g.density ./= sum(g.density)
   g
 end
-function Adaptive(p::Int, F::Function, ::Type{T}, n::Int = 10_000, q::QuadratureRule = GenzKeister, l::Int = 6) where {F <: Function, T}
+function Adaptive(::Type{<: Adaptive{q, p, F, T}}, l::Int, n::Int) where {q,p,F,T}
   ab = Adaptive(Dict{SVector{p, Int},T}(), AdaptiveBuildInit(p, q, F, l)...)
   construct!(ab, n)
   ab
 end
-function build(::Type{<: Adaptive{q, p, F, T}}, p::Int, F::Function, ::Type{T}, n::Int = 10_000, q::QuadratureRule = GenzKeister, l::Int = 6) where {}
-
+Adaptive(p::Int, ::F, ::Type{T}, n::Int = 10_000, q::QuadratureRule = GenzKeister, l::Int = 6) where {F <: Function, T} = Adaptive(Adaptive{q, p, F, T}, l, n)
+function build(::Type{<: Adaptive{q, p, F, T}}, F::Function, ::Type{T}, n::Int = 10_000, q::QuadratureRule = GenzKeister, l::Int = 6) where {}
+  ab = Adaptive(Adaptive{q, p, F, T}, l, n)
 end
 gts(::Type{<:tsd{T}}) where {T} = tsd{T,Float64}(zero(T), [1.2, 5.3, 94.2])
 
 
-function get!(GV::GridVessel{p, q, B}, i::Tuple{Int, Int}, F::Function where {p, q <: QuadratureRule}) where {B <: GridBuild}
+convert(::Type{FlattenedGrid{q}}, ab::Adaptive{q,p,F,T}) where {q,p,F,T} = FlattenedGrid(ab.Grid)
+
+
+function get!(GV::GridVessel{p, q, B} where {p, q <: QuadratureRule}, i::Tuple{Int, Int}, f::F ) where {B <: GridBuild, F <: Function}
   if haskey(GV.grids, i)
-    return eval_grid(GV.grids[i], F)
+    return eval_grid(GV.grids[i], f)
   else
-    grid_store, grid_out = build()
+    grid_store, grid_out = build(B{i[1],F})
     GV.grids[i] = grid_store
     grid_out
   end
 end
-function get!(GV::GridVessel{p, q, B <: GridBuild}, i::Tuple{Int, Int}, F::Function, ::Type{T} where {p, q <: QuadratureRule}) where {B <: GridBuild, T}
+function get!(GV::GridVessel{p, q, B <: GridBuild} where {p}, i::Tuple{Int, Int}, f::F, ::Type{T}) where {q <: QuadratureRule, B <: GridBuild, F <: Function, T}
   if haskey(GV.grids, i)
-    return eval_grid_cache(GV.grids[i], F, T)
+    return eval_grid_cache(GV.grids[i], f, T)
   else
-    grid_store, grid_out = build(B)
+    grid_store, grid_out = build(B{i[1],F,T})
     GV.grids[i] = grid_store
     grid_out
   end
 end
+
+
 function get!(GV::GridVessel{p, q, B <: aPrioriBuild}, i::Tuple{Int, Int},)
   if haskey(GV.grids, i)
     B()

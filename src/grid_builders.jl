@@ -32,6 +32,9 @@ struct Adaptive{q, p, F, T} <: AdaptiveBuild{q, p, F}
   l::Int
 end
 
+
+
+
 function AdaptiveBuildInit(p::Int, q::QuadratureRule, F::Function, l::Int = 6)
   Dict{SVector{p,Int}, Float64}(), Dict{SArray{p,Int},Float64}(), Dict{SVector{p, Int64}, Δprod{p}}(), NestedGrid(p, q), initialize_e(p), F, l
 end
@@ -51,11 +54,6 @@ function Adaptive(p::Int, f::F, ::Type{T}, n::Int = 10_000, q::QuadratureRule = 
   ab
 end
 
-function Smolyak()
-  grid = NestedGrid(p, q, seq)
-  smolyak!(grid, l)
-  FlattenedGrid(grid)
-end
 
 function e_j(p::Int, j::Int)
   out = zeros(Int, p)
