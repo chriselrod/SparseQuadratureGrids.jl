@@ -1,5 +1,18 @@
-abstract type AdaptiveBuild{p, q, F} end
-struct AdaptiveBuilder{p, q, F} <: AdaptiveBuild{p, q, F}
+abstract type GridBuild{q <: QuadratureRule} end
+abstract type aPrioriBuild{q} <: GridBuild{q} end
+abstract type AdaptiveBuild{q, p, F} <: GridBuild{q} end
+struct SmolyakConstrained{q} <: aPrioriBuild{q}
+  Grid::NestedGrid{p, q}
+  seq::Vector{Int}
+  l::Int
+end
+struct Smolyak{q, T} <: aPrioriBuild{q}
+  cache::Dict{SVector{p, Int}, T}
+  Grid::NestedGrid{p, q}
+  seq::Vector{Int}
+  l::Int
+end
+struct AdaptiveConstrained{q, p, F} <: AdaptiveBuild{q, p, F}
   F_cache::Dict{SVector{p,Int}, Float64}
   NeighborError::Dict{SVector{p,Int},Float64}
   Neighbors::Dict{SVector{p, Int}, Δprod{p}}
@@ -8,7 +21,7 @@ struct AdaptiveBuilder{p, q, F} <: AdaptiveBuild{p, q, F}
   f::F
   l::Int #Max depth. 6 for GenzKeister & KronrodPatterson. Can be arbitrarilly high for GaussHermite.
 end
-struct AdaptiveBuilderCache{p, q, F, T} <: AdaptiveBuild{p, q, F}
+struct Adaptive{q, p, F, T} <: AdaptiveBuild{q, p, F}
   cache::Dict{SVector{p, Int}, T}
   F_cache::Dict{SVector{p,Int}, Float64}
   NeighborError::Dict{SVector{p,Int},Float64}
@@ -23,19 +36,25 @@ function AdaptiveBuildInit(p::Int, q::QuadratureRule, F::Function, l::Int = 6)
   Dict{SVector{p,Int}, Float64}(), Dict{SArray{p,Int},Float64}(), Dict{SVector{p, Int64}, Δprod{p}}(), NestedGrid(p, q), initialize_e(p), F, l
 end
 
-function AdaptiveBuilder(p::Int, q::QuadratureRule, F::Function, l::Int = 6)
+function AdaptiveConstrained(p::Int, q::QuadratureRule, F::Function, l::Int = 6)
   AdaptiveBuilder{p,q,F}(AdaptiveBuildInit(p, q, F, l)...)
 end
 
-function AdaptiveBuilder(p::Int, F::Function, n = 10_000, q::QuadratureRule = GenzKeister, l::Int = 6)
-  ab = AdaptiveBuilder(p, q, F, l)
+function AdaptiveConstrained(p::Int, F::Function, n::Int = 10_000, q::QuadratureRule = GenzKeister, l::Int = 6)
+  ab = AdaptiveConstrained(p, q, F, l)
   construct!(ab, n)
   ab
 end
-function AdaptiveBuilderCache(p::Int, F::Function, ::Type{T}, n = 10_000, q::QuadratureRule = GenzKeister, l::Int = 6) where {T}
-  ab = AdaptiveBuilderCache(Dict{SVector{p, Int},T}(), AdaptiveBuildInit(p, q, F, l)...)
+function Adaptive(p::Int, f::F, ::Type{T}, n::Int = 10_000, q::QuadratureRule = GenzKeister, l::Int = 6) where {F <: Function, T}
+  ab = Adaptive{p, q, F, T}(Dict{SVector{p, Int},T}(), AdaptiveBuildInit(p, q, f, l)...)
   construct!(ab, n)
   ab
+end
+
+function Smolyak()
+  grid = NestedGrid(p, q, seq)
+  smolyak!(grid, l)
+  FlattenedGrid(grid)
 end
 
 function e_j(p::Int, j::Int)
@@ -101,8 +120,7 @@ function eval_f(ab::AdaptiveBuilderCache{p,q,F,T}, i::SVector{p,Int}) where {p,q
   get!(() -> cache_f(ab, i), ab.F_cache, i)
 end
 function cache_f(ab::AdaptiveBuilderCache{p,q,F,T}, i::SVector{p,Int}) where {p,q,F,T}
-  res, to_cache = ab.f(get_node.(ab.Grid, i))
-  ab.cache[i] = to_cache
+  res, ab.cache[i] = ab.f(get_node.(ab.Grid, i))
   res
 end
 
@@ -138,6 +156,7 @@ end
     end
   end
 end
+
 
 @generated function lx!(Grid::NestedGrid{p,q}, l::Int, x::Real) where {p,q<:NestedQuadratureRule}
   quote
