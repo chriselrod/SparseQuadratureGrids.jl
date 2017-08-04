@@ -16,6 +16,12 @@ struct FlattenedGrid{q <: QuadratureRule}
   baseline_weights::Vector{Float64}
   density::Vector{Float64}
 end
+#Maybe leave Smolyak abstract?
+#GridFit only for aPriori types
+#AdaptiveGrid is what you get for the posteriori builds.
+struct GridFit{B <: aPrioriBuildBuild}
+
+end
 struct SmolyakConstrained{q, p, F} <: aPrioriBuild{q}
   Grid::NestedGrid{p, q}
   seq::Vector{Int}
@@ -103,14 +109,15 @@ function normalize!(g::FlattenedGrid)
   g.density ./= sum(g.density)
   g
 end
-function Adaptive(::Type{<: Adaptive{q, p, F, T}}, l::Int, n::Int) where {q,p,F,T}
-  ab = Adaptive(Dict{SVector{p, Int},T}(), AdaptiveBuildInit(p, q, F, l)...)
+function Adaptive(::Type{<: Adaptive{q, p, F, T}}, f::F, l::Int, n::Int) where {q,p, F <: Function, T}
+  ab = Adaptive{q, p, F, T}(Dict{SVector{p, Int},T}(), AdaptiveBuildInit(p, q, f, l)...)
   construct!(ab, n)
   ab
 end
 Adaptive(p::Int, ::F, ::Type{T}, n::Int = 10_000, q::QuadratureRule = GenzKeister, l::Int = 6) where {F <: Function, T} = Adaptive(Adaptive{q, p, F, T}, l, n)
-function build(::Type{<: Adaptive{q, p, F, T}}, F::Function, ::Type{T}, n::Int = 10_000, q::QuadratureRule = GenzKeister, l::Int = 6) where {}
-  ab = Adaptive(Adaptive{q, p, F, T}, l, n)
+function build(::Type{<: Adaptive{q, p, F, T}}, f::F, n::Int = 10_000, l::Int = 6) where {q,p,F,T}
+  ab = Adaptive(Adaptive{q, p, F, T}, f, l, n)
+  GV[]
 end
 gts(::Type{<:tsd{T}}) where {T} = tsd{T,Float64}(zero(T), [1.2, 5.3, 94.2])
 
@@ -118,23 +125,32 @@ gts(::Type{<:tsd{T}}) where {T} = tsd{T,Float64}(zero(T), [1.2, 5.3, 94.2])
 convert(::Type{FlattenedGrid{q}}, ab::Adaptive{q,p,F,T}) where {q,p,F,T} = FlattenedGrid(ab.Grid)
 
 
-function get!(GV::GridVessel{p, q, B} where {p, q <: QuadratureRule}, i::Tuple{Int, Int}, f::F ) where {B <: GridBuild, F <: Function}
+#calc_grid! performs a dynamic dispatch. Hence, it is seperated from everything else.
+function calc_grid!(GV::GridVessel{p, q, B} where {p, q <: QuadratureRule}, i::Tuple{Int, Int}, f::F ) where {B <: GridBuild, F <: Function}
+  grid_store::FlattenedGrid{q}, grid_out::FlattenedGrid{q} = build(B{i[1],F})#Gross dynamic dispatch.
+  GV.grids[i] = grid_store
+  grid_out
+end
+#P == T, dipwad
+function calc_grid!(GV::GridVessel{p, q, B} where {p, q <: QuadratureRule}, i::Tuple{Int, Int}, f::F, ::Type{T}) where {B <: GridBuild, F <: Function, T}
+  grid_store::Vector{P}, grid_out::FlattenedGrid{q} = build(B{i[1],F})#Gross dynamic dispatch.
+  GV.grids[i] = grid_store
+  grid_out
+end
+
+
+function return_grid!(M::Model{p, q, P, B} where {p, q <: QuadratureRule}, i::Tuple{Int, Int}, f::F ) where {B <: GridBuild, F <: Function, P <: parameters}
   if haskey(GV.grids, i)
     return eval_grid(GV.grids[i], f)
   else
-    grid_store, grid_out = build(B{i[1],F})
-    GV.grids[i] = grid_store
-    grid_out
+    return calc_grid!(GV, i, f)
   end
 end
-function get!(GV::GridVessel{p, q, B <: GridBuild} where {p}, i::Tuple{Int, Int}, f::F, ::Type{T}) where {q <: QuadratureRule, B <: GridBuild, F <: Function, T}
+function get!(M::Model{p, q, P, B} where {p, q <: QuadratureRule}, i::Tuple{Int, Int}, f::F ) where {B <: GridBuild, F <: Function, P <: parameters}
   if haskey(GV.grids, i)
-    return eval_grid_cache(GV.grids[i], f, T)
+    return eval_grid_cache(GV.grids[i], f, P)
   else
-    grid_store, grid_out = build(B{i[1],F,T})
-    GV.grids[i] = grid_store
-    grid_out
-  end
+    return calc_grid!(GV, i, f, P)
 end
 
 
