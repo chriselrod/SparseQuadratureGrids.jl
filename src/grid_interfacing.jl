@@ -1,5 +1,5 @@
 #Why the p in grid interfaces?
-abstract type GridInterface{p,q <: QuadratureRule} end
+abstract type GridInterface{q <: QuadratureRule} end
 struct SplitWeights{p,q<: QuadratureRule}
   nodes_positive::Array{Float64,2}
   nodes_negative::Array{Float64,2}
@@ -19,10 +19,11 @@ end
 #Maybe leave Smolyak abstract?
 #GridFit only for aPriori types
 #AdaptiveGrid is what you get for the posteriori builds.
-struct GridFit{B <: aPrioriBuildBuild}
+struct GridFit{B <: aPrioriBuild}
+
 
 end
-struct SmolyakConstrained{q, p, F} <: aPrioriBuild{q}
+struct SmolyakRaw{q, p, F} <: aPrioriBuild{q}
   Grid::NestedGrid{p, q}
   seq::Vector{Int}
   l::Int
@@ -36,31 +37,25 @@ struct Smolyak{q, p, F, T} <: aPrioriBuild{q}
   f::Function
 end
 
-struct GridContainer{p,q} <: GridInterface{p,q}
+struct GridContainer{q} <: GridInterface{q}
   grids::Dict{Int, FlattenedGrid{q}}
   U::Array{Float64,2}
   l::Int
   seq::Vector{Int}
   mats::Dict{Int, Array{Float64,2}}
 end
-struct GridVessel{p, q, B <: GridBuild} <: GridInterface{p,q}
-  grids::Dict{Tuple{Int,Int}, FlattenedGrid{q}}
+struct GridVessel{q, B <: GridBuild} <: GridInterface{q}
+  grids::Dict{K, FlattenedGrid{q}}
   U::Array{Float64, 2}
-  seq::Vector{Int}
   mats::Dict{Int, Array{Float64,2}}
 end
-
-function AdaptiveConstrained(p::Int, q::QuadratureRule, F::Function, l::Int = 6)
-  AdaptiveBuilder{p,q,F}(AdaptiveBuildInit(p, q, F, l)...)
+function GridVessel(::Type{q},::Type{B},::Type{K},p::Int) where {q <: NestedQuadratureRule, B <: GridBuild}
+  GridVessel{q,B}(Dict{K,FlattenedGrid{q}}(),Array{Float64,2}(p,p) ,Dict{Int,Array{Float64,2}}())
 end
 
-function AdaptiveConstrained(p::Int, F::Function, n::Int = 10_000, q::QuadratureRule = GenzKeister, l::Int = 6)
-  ab = AdaptiveConstrained(p, q, F, l)
-  construct!(ab, n)
-  ab
-end
-function SmolyakConstrained(p::Int, F::Function, q::QuadratureRule = GenzKeister, l::Int = 6, seq::Vector{Int} = default(q))
-  grid = NestedGrid(p, q, seq)
+
+function SmolyakRaw(::Type{Val{p}}, F::Function, q::QuadratureRule = GenzKeister, l::Int = 6, seq::Vector{Int} = default(q))
+  grid = NestedGrid(Val{p}, q, seq)
   smolyak!(grid, l)
   g = FlattenedGrid(grid)
 
@@ -71,13 +66,14 @@ function SmolyakConstrained(p::Int, F::Function, q::QuadratureRule = GenzKeister
   g.density .= exp.(minimum(g.density) .- g.density) .* g.weights
   g.density ./= sum(g.density)
 
-  SmolyakConstrained{q, p, F}(g, seq, l, F)
+  SmolyakRaw{q, p, F}(g, seq, l, F)
 end
-function Smolyak(p::Int, F::Function, ::Type{T}, q::QuadratureRule = GenzKeister, l::Int = 6, seq::Vector{Int} = default(q))
-  grid = NestedGrid(p, q, seq)
+function Smolyak(::Type{Val{p}}, F::Function, ::Type{T}, q::QuadratureRule = GenzKeister, l::Int = 6, seq::Vector{Int} = default(q))
+  grid = NestedGrid(Val{p}, q, seq)
   smolyak!(grid, l)
   Smolyak(FlattenedGrid(grid), F, T, l, seq)
 end
+
 function Smolyak(g::FlattenedGrid{q}, F::Function, ::Type{T}, l::Int = 6, seq::Vector{Int} = default(q))
   cache = Vector{T}(length(g.weights))
 
@@ -88,89 +84,127 @@ function Smolyak(g::FlattenedGrid{q}, F::Function, ::Type{T}, l::Int = 6, seq::V
   normalize!(g)
   Smolyak{q, p, F}(cache, g, seq, l, F)
 end
-function eval_grid(g::FlattenedGrid{q}, F::Function)
+
+function aPrioriGrid(::Type{SmolyakRaw{q,p,F,T}}, f::Function, seq::Vector{Int}) where {q,p,F,T}
+  grid = NestedGrid(Val{p}, q, seq)
+  smolyak!(grid, length(seq))
+  eval_grid(FlattenedGrid{q}(grid), f)
+end
+function FlattenedGrid(::Type{SmolyakBuild{q,p,F}}, f::F, seq::Vector{Int}) where {F <: Function}
+  grid = NestedGrid(Val{p}, q, seq)
+  smolyak!(grid, length(seq))
+  eval_grid(FlattenedGrid{q}(grid), f)
+end
+function FlattenedGrid(::Type{SmolyakBuild{q,p,F}} where {q<:QuadratureRule, p, F <: Function}, seq::Vector{Int})
+  grid = NestedGrid(Val{p}, q, seq)
+  smolyak!(grid, length(seq))
+  FlattenedGrid{q}(grid)
+end
+function eval_grid(g::FlattenedGrid{q}, f::Function)
   @inbounds for i ∈ eachindex(g.density)
-    g.density[i] = g.baseline_weights[i] + F( g.nodes[:,i] )
+    g.density[i] = g.baseline_weights[i] + f( g.nodes[:,i] )
   end
   g.density .= exp.(minimum(g.density) .- g.density) .* g.weights
   g.density ./= sum(g.density)
   normalize!(g)
 end
-function eval_grid_cache(g::FlattenedGrid{q}, F::Function, ::Type{T})
+function eval_grid(g::FlattenedGrid{q}, f::Function, ::Type{T})
   cache = Vector{T}(length(g.weights))
   @inbounds for i ∈ eachindex(g.density)
-    f_val, cache[i] = F( g.nodes[:,i] )
+    f_val, cache[i] = f( g.nodes[:,i] )
     g.density[i] = g.baseline_weights[i] + f_val
   end
-  normalize!(g), cache
+  normalize!(g).density, cache
 end
 function normalize!(g::FlattenedGrid)
   g.density .= exp.(minimum(g.density) .- g.density) .* g.weights
   g.density ./= sum(g.density)
   g
 end
-function Adaptive(::Type{<: Adaptive{q, p, F, T}}, f::F, l::Int, n::Int) where {q,p, F <: Function, T}
-  ab = Adaptive{q, p, F, T}(Dict{SVector{p, Int},T}(), AdaptiveBuildInit(p, q, f, l)...)
+function Adapt(::Type{Adaptive{q, p, F, T}}, f::F, l::Int, n::Int) where {q,p, F <: Function, T}
+  ab = Adaptive{q, p, F, T}(Dict{SVector{p, Int},T}(), Dict{SVector{p,Int}, Float64}(), Dict{SVector{p,Int}, Vector{Float64}}(), Dict{SVector{p,Int}, Float64}(), Dict{SArray{p,Int},Float64}(), Dict{SVector{p, Int64}, Δprod{p}}(), NestedGrid{p,q}(Val{p}, q), initialize_e(p), f, l)
   construct!(ab, n)
   ab
 end
+function Adapt(::Type{AdaptiveRaw{q, p, F}}, f::F, l::Int, n::Int) where {q,p, F <: Function, T}
+  ab = AdaptiveRaw{q, p, F}(Dict{SVector{p,Int}, Float64}(), Dict{SVector{p,Int}, Vector{Float64}}(), Dict{SVector{p,Int}, Float64}(), Dict{SArray{p,Int},Float64}(), Dict{SVector{p, Int64}, Δprod{p}}(), NestedGrid(p, q), initialize_e(p), f, l)
+  construct!(ab, n)
+  ab
+end
+#Caution: this method is a dynamic dispatch.
 Adaptive(p::Int, ::F, ::Type{T}, n::Int = 10_000, q::QuadratureRule = GenzKeister, l::Int = 6) where {F <: Function, T} = Adaptive(Adaptive{q, p, F, T}, l, n)
-function build(::Type{<: Adaptive{q, p, F, T}}, f::F, n::Int = 10_000, l::Int = 6) where {q,p,F,T}
-  ab = Adaptive(Adaptive{q, p, F, T}, f, l, n)
-  GV[]
+
+function density(ab::Adaptive{q, p, F, T}) where {q,p,F,T}
+  n = length(ab.Grid.grid)
+  density = Vector{Float64}(n)
+  params = Vector{T}(n)
+  for (i, j) ∈ enumerate(keys(ab.Grid.grid))
+    density[i] = ab.F_cache[j] * ab.Grid.grid[j]
+    params[i] = ab.cache[j]
+  end
+  density ./= sum(density)
+  density, params
 end
-gts(::Type{<:tsd{T}}) where {T} = tsd{T,Float64}(zero(T), [1.2, 5.3, 94.2])
+function density(ab::AdaptiveRaw{q, p, F}) where {q,p,F}
+  n = length(ab.Grid.grid)
+  nodes = Array{Float64,2}(p,n)
+  weights = Vector{Float64}(n)
+  density = Vector{Float64}(n)
+  for (i, j) ∈ enumerate(keys(ab.Grid.grid))
+    weights[i] = ab.Grid.grid[j]
+    density[i] = ab.F_cache[j] * weights[i]
+    nodes[:,i] .= get_node(ab, j)
+  end
+  density ./= sum(density)
+  FlattenedGrid{q}(nodes, weights, Vector{Float64}(n), density)
+end
 
+function build(GV::GridVessel{q, B}, ::Type{Bc}, f::F, i::Tuple{Int, Int, Int}, l::Int = 6) where {q,p,F<:Function, B <: AdaptiveBuild{q}, Bc <: AdaptiveBuild{q, p, F}}
+  ab = Adapt(Bc, f, l, i[3])
+  GV.grids[i] = FlattenedGrid(ab)
+  expand_grid!(ab.Grid, ab.Neighbors)
+  density(ab)
+end
+function build(GV::GridVessel{q, B}, ::Type{Bc}, f::F, i::Tuple{Int, Vector{Int}}) where {q,p,F<:Function, B <: aPrioriBuild{q}, Bc <: aPrioriBuild{q,p,F}}
+  grid = FlattenedGrid(Bc, i[2])
+  GV.grids[i] = grid
+  eval_grid(grid, f)
+end
+function build(GV::GridVessel{q, B}, ::Type{Bc}, f::F, i::Tuple{Int, Vector{Int}}) where {q,p,F<:Function, B <: aPrioriBuild{q}, Bc <: aPrioriBuild{q,p,F,T}}
+  grid = FlattenedGrid(Bc, i[2])
+  GV.grids[i] = grid
+  eval_grid(grid, f, T)
+end
 
-convert(::Type{FlattenedGrid{q}}, ab::Adaptive{q,p,F,T}) where {q,p,F,T} = FlattenedGrid(ab.Grid)
+convert(::Type{FlattenedGrid{q}}, ab::AdaptiveBuild{q}) = FlattenedGrid(ab)
 
-
-#calc_grid! performs a dynamic dispatch. Hence, it is seperated from everything else.
+#calc_grid! performs a costly dynamic dispatch.
 function calc_grid!(GV::GridVessel{p, q, B} where {p, q <: QuadratureRule}, i::Tuple{Int, Int}, f::F ) where {B <: GridBuild, F <: Function}
-  grid_store::FlattenedGrid{q}, grid_out::FlattenedGrid{q} = build(B{i[1],F})#Gross dynamic dispatch.
-  GV.grids[i] = grid_store
-  grid_out
+  build!(GV, B{i[1],F}, f, i)::FlattenedGrid{q}
 end
-#P == T, dipwad
-function calc_grid!(GV::GridVessel{p, q, B} where {p, q <: QuadratureRule}, i::Tuple{Int, Int}, f::F, ::Type{T}) where {B <: GridBuild, F <: Function, T}
-  grid_store::Vector{P}, grid_out::FlattenedGrid{q} = build(B{i[1],F})#Gross dynamic dispatch.
-  GV.grids[i] = grid_store
-  grid_out
+function calc_grid!(GV::GridVessel{p, q, B} where {p, q <: QuadratureRule}, i::Tuple{Int, Int, Int}, f::F, ::Type{T}) where {B <: GridBuild, F <: Function, T}
+  build!(GV, B{i[1],F,T}, f, i)::Tuple{Vector{Float64},Vector{P}}
+end
+
+###These are the two functions called by the JointPosteriors package.
+###The first, return_grid!, is for the raw version, and it simply returns a flattened grid of the raw unconstrained values.
+###The second returns a vector of parameter objects. More costly, but should be cheaper to compute marginals on thanks to cacheing the transformations.
+function return_grid!(M::Model{q, P, B} where {q <: QuadratureRule, P <: parameters}, i::Tuple{Int, Vector{Int}}, f::F ) where {B <: GridBuild, F <: Function}
+  haskey(GV.grids, i) ? eval_grid(GV.grids[i], f) : calc_grid!(GV, i, f)
+end
+function get!(M::Model{q, P, B} where {q <: QuadratureRule}, i::Tuple{Int, Int, Int}, f::F ) where {B <: GridBuild, F <: Function, P <: parameters}
+  haskey(GV.grids, i) ? eval_grid(GV.grids[i], f, P) : calc_grid!(GV, i, f, P)
 end
 
 
-function return_grid!(M::Model{p, q, P, B} where {p, q <: QuadratureRule}, i::Tuple{Int, Int}, f::F ) where {B <: GridBuild, F <: Function, P <: parameters}
-  if haskey(GV.grids, i)
-    return eval_grid(GV.grids[i], f)
-  else
-    return calc_grid!(GV, i, f)
-  end
-end
-function get!(M::Model{p, q, P, B} where {p, q <: QuadratureRule}, i::Tuple{Int, Int}, f::F ) where {B <: GridBuild, F <: Function, P <: parameters}
-  if haskey(GV.grids, i)
-    return eval_grid_cache(GV.grids[i], f, P)
-  else
-    return calc_grid!(GV, i, f, P)
-end
 
-
-function get!(GV::GridVessel{p, q, B <: aPrioriBuild}, i::Tuple{Int, Int},)
-  if haskey(GV.grids, i)
-    B()
-  else
-    something different.
-  end
-end
-function get!(Grid::GridVessel{p, q, B <: AdaptiveBuild})
-end
-
-function FlattenedGrid(p::Int, l::Int, ::Type{q}, seq::Vector{Int} = default(q)) where {q}
-  grid = NestedGrid(p, q, seq)
+function FlattenedGrid(::Type{Val{p}}, l::Int, ::Type{q}, seq::Vector{Int} = default(q)) where {q}
+  grid = NestedGrid(Val{p}, q, seq)
   smolyak!(grid, l)
   FlattenedGrid(grid)
 end
 
-function FlattenedGrid(Grid::NestedGrid{p,q}) where {p,q<:NestedQuadratureRule}
+function flatten_nodes_and_weights(Grid::NestedGrid{p,q})
   n = length(Grid.grid)
   nodes = Array{Float64,2}(p,n)
   weights = Vector{Float64}(n)
@@ -178,6 +212,11 @@ function FlattenedGrid(Grid::NestedGrid{p,q}) where {p,q<:NestedQuadratureRule}
     weights[i] = Grid.grid[j]
     nodes[:,i] .= get_node.(Grid, j)
   end
+  nodes, weights
+end
+
+function FlattenedGrid(Grid::NestedGrid{p,q}) where {p,q<:NestedQuadratureRule}
+  nodes, weights = flatten_nodes_and_weights(Grid)
   FlattenedGrid(nodes, weights, q)
 end
 FlattenedGrid(n::Array{Float64,2}, w::Vector{Float64}, ::Type{GenzKeister}) = FlattenedGrid(n, w, - vec(sum(n .^ 2, [1])), GenzKeister)
@@ -185,7 +224,28 @@ FlattenedGrid(n::Array{Float64,2}, w::Vector{Float64}, ::Type{KronrodPatterson})
 function FlattenedGrid(n::Array{Float64,2}, w::Vector{Float64}, b::Vector{Float64}, ::Type{q}) where {q}
   FlattenedGrid{q}(n, w, b, similar(b))
 end
-
+function FlattenedGrid(ab::AdaptiveBuild{GenzKeister,p,F}) where {p,F}
+  n = length(ab.Grid.grid)
+  nodes = Array{Float64,2}(p,n)
+  weights = Vector{Float64}(n)
+  baseline = Vector{Float64}(n)
+  for (i, j) ∈ enumerate(keys(ab.Grid.grid))
+    weights[i] = ab.Grid.grid[j]
+    nodes[:,i] .= get_node(ab, j)
+    baseline[i] = ab.baseline_cache[j]
+  end
+  FlattenedGrid{GenzKeister}(nodes, weights, baseline, Vector{Float64}(n))
+end
+function FlattenedGrid(ab::AdaptiveBuild{KronrodPatterson,p,F}) where {p,F}
+  n = length(ab.Grid.grid)
+  nodes = Array{Float64,2}(p,n)
+  weights = Vector{Float64}(n)
+  for (i, j) ∈ enumerate(keys(ab.Grid.grid))
+    weights[i] = ab.Grid.grid[j]
+    nodes[:,i] .= get_node(ab, j)
+  end
+  FlattenedGrid{KronrodPatterson}(nodes, weights, Vector{Float64}(n), Vector{Float64}(n))
+end
 
 
 function getindex(g::GridContainer{p, q} where {p}, i::Int) where {q}

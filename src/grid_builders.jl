@@ -1,7 +1,7 @@
 abstract type GridBuild{q <: QuadratureRule} end
 abstract type aPrioriBuild{q} <: GridBuild{q} end
 abstract type AdaptiveBuild{q, p, F} <: GridBuild{q} end
-struct SmolyakConstrained{q} <: aPrioriBuild{q}
+struct SmolyakRaw{q} <: aPrioriBuild{q}
   Grid::NestedGrid{p, q}
   seq::Vector{Int}
   l::Int
@@ -12,8 +12,10 @@ struct Smolyak{q, T} <: aPrioriBuild{q}
   seq::Vector{Int}
   l::Int
 end
-struct AdaptiveConstrained{q, p, F} <: AdaptiveBuild{q, p, F}
+struct AdaptiveRaw{q, p, F} <: AdaptiveBuild{q, p, F}
   F_cache::Dict{SVector{p,Int}, Float64}
+  node_cache::Dict{SVector{p,Int}, Vector{Float64}}
+  baseline_cache::Dict{SVector{p,Int}, Float64}
   NeighborError::Dict{SVector{p,Int},Float64}
   Neighbors::Dict{SVector{p, Int}, Δprod{p}}
   Grid::NestedGrid{p, q}
@@ -24,6 +26,8 @@ end
 struct Adaptive{q, p, F, T} <: AdaptiveBuild{q, p, F}
   cache::Dict{SVector{p, Int}, T}
   F_cache::Dict{SVector{p,Int}, Float64}
+  node_cache::Dict{SVector{p,Int}, Vector{Float64}}
+  baseline_cache::Dict{SVector{p,Int}, Float64}
   NeighborError::Dict{SVector{p,Int},Float64}
   Neighbors::Dict{SVector{p, Int}, Δprod{p}}
   Grid::NestedGrid{p, q}
@@ -31,29 +35,8 @@ struct Adaptive{q, p, F, T} <: AdaptiveBuild{q, p, F}
   f::F
   l::Int
 end
-
-
-
-
-function AdaptiveBuildInit(p::Int, q::QuadratureRule, F::Function, l::Int = 6)
-  Dict{SVector{p,Int}, Float64}(), Dict{SArray{p,Int},Float64}(), Dict{SVector{p, Int64}, Δprod{p}}(), NestedGrid(p, q), initialize_e(p), F, l
-end
-
-function AdaptiveConstrained(p::Int, q::QuadratureRule, F::Function, l::Int = 6)
-  AdaptiveBuilder{p,q,F}(AdaptiveBuildInit(p, q, F, l)...)
-end
-
-function AdaptiveConstrained(p::Int, F::Function, n::Int = 10_000, q::QuadratureRule = GenzKeister, l::Int = 6)
-  ab = AdaptiveConstrained(p, q, F, l)
-  construct!(ab, n)
-  ab
-end
-function Adaptive(p::Int, f::F, ::Type{T}, n::Int = 10_000, q::QuadratureRule = GenzKeister, l::Int = 6) where {F <: Function, T}
-  ab = Adaptive{p, q, F, T}(Dict{SVector{p, Int},T}(), AdaptiveBuildInit(p, q, f, l)...)
-  construct!(ab, n)
-  ab
-end
-
+RawBuild = Union{SmolyakRaw, AdaptiveRaw}
+SmolyakBuild = Union{Smolyak, SmolyakRaw}
 
 function e_j(p::Int, j::Int)
   out = zeros(Int, p)
@@ -110,16 +93,33 @@ function Δ_prod_error!(ab::AdaptiveBuild{p,q,F}, Δ_prod::SVector{p,Int}) where
   end
   out
 end
-
-function eval_f(ab::AdaptiveBuilder{p,q,F}, i::SVector{p,Int}) where {p,q,F}
-  get!(() -> ab.f(get_node.(ab.Grid, i)), ab.F_cache, i)
+function get_node(ab::AdaptiveBuild, i::SVector{p,Int})
+  get!(() -> get_node.(ab.Grid, i), ab.node_cache, i)
 end
-function eval_f(ab::AdaptiveBuilderCache{p,q,F,T}, i::SVector{p,Int}) where {p,q,F,T}
+
+function eval_f(ab::AdaptiveRaw{GenzKeister,p,F}, i::SVector{p,Int}) where {p,F}
   get!(() -> cache_f(ab, i), ab.F_cache, i)
 end
-function cache_f(ab::AdaptiveBuilderCache{p,q,F,T}, i::SVector{p,Int}) where {p,q,F,T}
-  res, ab.cache[i] = ab.f(get_node.(ab.Grid, i))
-  res
+function eval_f(ab::AdaptiveRaw{KronrodPatterson,p,F}, i::SVector{p,Int}) where {p,F}
+  get!(() -> exp(ab.f(get_node(ab, i))), ab.F_cache, i)
+end
+function eval_f(ab::Adaptive{p,q,F,T}, i::SVector{p,Int}) where {p,q,F,T}
+  get!(() -> cache_f(ab, i), ab.F_cache, i)
+end
+function cache_f(ab::AdaptiveRaw{GenzKeister,p,F,T}, i::SVector{p,Int}) where {p,F,T}
+  node = get_node(ab, i)
+  ab.baseline_cache[i] = sum(node .^ 2)
+  exp(ab.f(node) + ab.baseline_cache[i])
+end
+function cache_f(ab::Adaptive{GenzKeister,p,F,T}, i::SVector{p,Int}) where {p,F,T}
+  node = get_node(ab, i)
+  ab.baseline_cache[i] = sum(node .^ 2)
+  res, ab.cache[i] = ab.f(node)
+  exp(res + ab.baseline_cache[i])
+end
+function cache_f(ab::Adaptive{KronrodPatterson,p,F,T}, i::SVector{p,Int}) where {p,F,T}
+  res, ab.cache[i] = ab.f(get_node(ab, i))
+  exp(res)
 end
 
 @generated function smolyak!(Grid::NestedGrid{p,q}, l::Int) where {p,q<:NestedQuadratureRule}
