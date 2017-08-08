@@ -15,7 +15,14 @@ export  SplitWeights,
         calc_Δ_prod!,
         smolyak!,
         FlattenedGrid,
-        GridContainer
+        GridContainer,
+        GridBuild,
+        AdaptiveBuild,
+        aPrioriBuild,
+        eval_grid,
+        calc_grid,
+        DynamicGridVessel,
+        StaticGridVessel
 
 include("univariate_rules.jl")
 include("grid.jl")
