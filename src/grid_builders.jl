@@ -1,22 +1,11 @@
 abstract type GridBuild{q <: QuadratureRule} end
-abstract type aPrioriBuild{q} <: GridBuild{q} end
+abstract type aPrioriBuild{q, p, F} <: GridBuild{q} end
 abstract type AdaptiveBuild{q, p, F} <: GridBuild{q} end
-struct SmolyakRaw{q} <: aPrioriBuild{q}
-  Grid::NestedGrid{p, q}
-  seq::Vector{Int}
-  l::Int
-end
-struct Smolyak{q, T} <: aPrioriBuild{q}
-  cache::Dict{SVector{p, Int}, T}
-  Grid::NestedGrid{p, q}
-  seq::Vector{Int}
-  l::Int
-end
 struct AdaptiveRaw{q, p, F} <: AdaptiveBuild{q, p, F}
   F_cache::Dict{SVector{p,Int}, Float64}
   node_cache::Dict{SVector{p,Int}, Vector{Float64}}
   baseline_cache::Dict{SVector{p,Int}, Float64}
-  NeighborError::Dict{SVector{p,Int},Float64}
+  NeighborError::Dict{SVector{p,Int}, Float64}
   Neighbors::Dict{SVector{p, Int}, Δprod{p}}
   Grid::NestedGrid{p, q}
   e::SVector{p, SVector{p,Int}}
@@ -28,26 +17,28 @@ struct Adaptive{q, p, F, T} <: AdaptiveBuild{q, p, F}
   F_cache::Dict{SVector{p,Int}, Float64}
   node_cache::Dict{SVector{p,Int}, Vector{Float64}}
   baseline_cache::Dict{SVector{p,Int}, Float64}
-  NeighborError::Dict{SVector{p,Int},Float64}
+  NeighborError::Dict{SVector{p,Int}, Float64}
   Neighbors::Dict{SVector{p, Int}, Δprod{p}}
   Grid::NestedGrid{p, q}
   e::SVector{p, SVector{p,Int}}
   f::F
   l::Int
 end
-RawBuild = Union{SmolyakRaw, AdaptiveRaw}
-SmolyakBuild = Union{Smolyak, SmolyakRaw}
+struct SmolyakRaw{q, p, F} <: aPrioriBuild{q, p, F} end
+struct Smolyak{q, p, F, T} <: aPrioriBuild{q, p, F} end
+RawBuild{q, p, F} = Union{SmolyakRaw{q, p, F}, AdaptiveRaw{q, p, F}}
+SmolyakBuild{q, p, F} = Union{SmolyakRaw{q, p, F}, Smolyak{q, p, F, T} where T}
 
-function e_j(p::Int, j::Int)
+function e_j(::Type{Val{p}}, j::Int) where p
   out = zeros(Int, p)
   out[j] = 1
   SVector{p}(out)
 end
-function initialize_e(p::Int)
-  SVector{p}(e_j.(p, 1:p))
+function initialize_e(::Type{Val{p}}) where p
+  SVector{p}(e_j.(Val{p}, 1:p))
 end
 
-function add_neighbors!(ab::AdaptiveBuild{p,q,F}, Δ_prod::SVector{p,Int}) where {p,q,F}
+function add_neighbors!(ab::AdaptiveBuild{q,p,F} where {q,F}, Δ_prod::SVector{p,Int}) where p
   for i ∈ 1:p
     Δ_prod_i = Δ_prod + ab.e[i]
     if haskey(ab.NeighborError, Δ_prod_i) || Δ_prod_i[i] > ab.l
@@ -55,27 +46,27 @@ function add_neighbors!(ab::AdaptiveBuild{p,q,F}, Δ_prod::SVector{p,Int}) where
     end
     neighbor_valid = true
     for j ∈ 1:p
-      if ( Δprod[j] == 0 ) || ( i == j )
+      if ( Δ_prod[j] == 1 ) || ( i == j )
         continue
-      elseif !haskey(ab.Grid.Δ_prods, Δprod_i - ab.e[j])
+      elseif !haskey(ab.Grid.Δ_prods, Δ_prod_i - ab.e[j])
         neighbor_valid = false
         break
       end
     end
     if neighbor_valid
-      add_neighbor!(ab, Δ_prod)
+      add_neighbor!(ab, Δ_prod_i)
     end
   end
 end
-function add_neighbor!(ab::AdaptiveBuild{p,q,F}, Δ_prod::SVector{p,Int}) where {p,q,F}
-  ab.Neighbors[Δ_prod] = calc_Δ_prod(Grid, Δ_prod)
+function add_neighbor!(ab::AdaptiveBuild{q,p,F} where {q,F}, Δ_prod::SVector{p,Int}) where p
+  ab.Neighbors[Δ_prod] = calc_Δ_prod(ab.Grid, Δ_prod)
   ab.NeighborError[Δ_prod] = Δ_prod_error!(ab, Δ_prod)
 end
 
 
 
-function construct!(ab::AdaptiveBuild{p,q,F}, n::Int) where {p,q,F}
-  Δ_prod = @SVector zeros(Int, p)
+function construct!(ab::AdaptiveBuild{q,p,F} where {q,F}, n::Int) where p
+  Δ_prod = @SVector ones(Int, p)
   ab.Grid.Δ_prods[Δ_prod] = calc_Δ_prod!(ab.Grid, Δ_prod)
   while length(ab.Grid) < n
     add_neighbors!(ab, Δ_prod)
@@ -86,38 +77,38 @@ function construct!(ab::AdaptiveBuild{p,q,F}, n::Int) where {p,q,F}
   end
 end
 
-function Δ_prod_error!(ab::AdaptiveBuild{p,q,F}, Δ_prod::SVector{p,Int}) where {p,q,F}
+function Δ_prod_error!(ab::AdaptiveBuild{q,p,F} where {q,F}, Δ_prod::SVector{p,Int}) where p
   out = 0.0
-  for i ∈ keys(ab.Neighbors[Δ_prod].w)
-    out += ab.Neighbors[Δ_prod].w[i] * eval_f!(ab, i)
+  for (i, w) ∈ ab.Neighbors[Δ_prod].w
+    out += w * eval_f!(ab, i)
   end
   out
 end
-function get_node(ab::AdaptiveBuild, i::SVector{p,Int})
+function get_node(ab::AdaptiveBuild{q,p,F} where {q,F}, i::SVector{p,Int}) where p
   get!(() -> get_node.(ab.Grid, i), ab.node_cache, i)
 end
 
-function eval_f(ab::AdaptiveRaw{GenzKeister,p,F}, i::SVector{p,Int}) where {p,F}
+function eval_f!(ab::AdaptiveRaw{GenzKeister,p,F} where F, i::SVector{p,Int}) where p
   get!(() -> cache_f(ab, i), ab.F_cache, i)
 end
-function eval_f(ab::AdaptiveRaw{KronrodPatterson,p,F}, i::SVector{p,Int}) where {p,F}
+function eval_f!(ab::AdaptiveRaw{KronrodPatterson,p,F} where F, i::SVector{p,Int}) where p
   get!(() -> exp(ab.f(get_node(ab, i))), ab.F_cache, i)
 end
-function eval_f(ab::Adaptive{p,q,F,T}, i::SVector{p,Int}) where {p,q,F,T}
+function eval_f!(ab::Adaptive{q,p,F,T} where {q,F,T}, i::SVector{p,Int}) where p
   get!(() -> cache_f(ab, i), ab.F_cache, i)
 end
-function cache_f(ab::AdaptiveRaw{GenzKeister,p,F,T}, i::SVector{p,Int}) where {p,F,T}
+function cache_f(ab::AdaptiveRaw{GenzKeister,p,F} where F, i::SVector{p,Int}) where p
   node = get_node(ab, i)
   ab.baseline_cache[i] = sum(node .^ 2)
   exp(ab.f(node) + ab.baseline_cache[i])
 end
-function cache_f(ab::Adaptive{GenzKeister,p,F,T}, i::SVector{p,Int}) where {p,F,T}
+function cache_f(ab::Adaptive{GenzKeister,p,F,T} where {F,T}, i::SVector{p,Int}) where p
   node = get_node(ab, i)
   ab.baseline_cache[i] = sum(node .^ 2)
   res, ab.cache[i] = ab.f(node)
   exp(res + ab.baseline_cache[i])
 end
-function cache_f(ab::Adaptive{KronrodPatterson,p,F,T}, i::SVector{p,Int}) where {p,F,T}
+function cache_f(ab::Adaptive{KronrodPatterson,p,F,T} where {F,T}, i::SVector{p,Int}) where p
   res, ab.cache[i] = ab.f(get_node(ab, i))
   exp(res)
 end

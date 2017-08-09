@@ -1,5 +1,4 @@
 abstract type QuadratureRule end
-
 abstract type NestedQuadratureRule <: QuadratureRule end
 abstract type UnitNestedRule <: NestedQuadratureRule end
 abstract type UnconstrainedNestedRule <: NestedQuadratureRule end
@@ -37,17 +36,11 @@ function delay_sequence(base_seq)
   end
   seq
 end
-function default(q::DataType)
-  if q == GenzKeister
-    return [1, 3, 9, 19, 35, 103]
-    #return [1, 3, 3, 9, 9, 9, 9, 19, 19, 19, 19, 19, 19, 19, 19, 35, 35, 35, 35, 35, 35, 35, 35, 35, 35, 35, 35, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103]
-  elseif q == KronrodPatterson
-    return [1, 3, 7, 15, 31, 63]
-    #return [1, 3, 3, 7, 7, 7, 15, 15, 15, 15, 15, 15, 31, 31, 31, 31, 31, 31, 31, 31, 31, 31, 31, 31, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63]
-  else
-    throw("Default unimplemented for grid type " * string(q) * ".")
-  end
-end
+default(::Any) = throw("Default unimplemented for grid type " * string(q) * ".")
+default(::Type{GenzKeister}) = [1, 3, 9, 19, 35, 103]
+default(::Type{KronrodPatterson}) = [1, 3, 7, 15, 31, 63]
+delayed(::Type{GenzKeister}) = [1, 3, 3, 9, 9, 9, 9, 19, 19, 19, 19, 19, 19, 19, 19, 35, 35, 35, 35, 35, 35, 35, 35, 35, 35, 35, 35, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103]
+delayed(::Type{KronrodPatterson}) = [1, 3, 3, 7, 7, 7, 15, 15, 15, 15, 15, 15, 31, 31, 31, 31, 31, 31, 31, 31, 31, 31, 31, 31, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63]
 
 function Base.isless(x::T, y::T) where {T <: NestedQuadratureRule}
   x.l < y.l

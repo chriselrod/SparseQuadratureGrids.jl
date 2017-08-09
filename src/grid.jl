@@ -1,9 +1,9 @@
 struct Val{p} end
 struct Δprod{p}
-  w::Dict{SVector{p, Int64},Float64}
+  w::Dict{SVector{p, Int},Float64}
 end
 function Δprod(::Type{Val{p}}) where p
-  Δprod{p}(Dict{SVector{p, Int64},Float64}())
+  Δprod{p}(Dict{SVector{p, Int}, Float64}())
 end
 function Base.:+(x::Δprod{p}, y::Δprod{p}) where p
   Δprod(x.w + y.w)
@@ -17,15 +17,9 @@ end
 function Base.getindex(A::Δprod{p}, i::SVector{p,Int64}) where p
   A.w[i]
 end
-function Base.keys(A::Δprod)
-  keys(A.w)
-end
-function Base.values(A::Δprod)
-  values(A.w)
-end
-function Base.length(A::Δprod)
-  length(A.w)
-end
+Base.keys(A::Δprod) = keys(A.w)
+Base.values(A::Δprod) = values(A.w)
+Base.length(A::Δprod) = length(A.w)
 
 
 struct NestedGrid{p, q <: NestedQuadratureRule}
@@ -38,16 +32,16 @@ struct NestedGrid{p, q <: NestedQuadratureRule}
 #  w::Dict{SVector{p, Int64}, Float64}
 
 end
-function NestedGrid(::Type{Val{p}}, ::Type{q}) where {p,q<:NestedQuadratureRule}
-  NestedGrid{p, q}(Dict{Int64,q}(), Dict{Int64,Δ{q}}(), Dict{SVector{p, Int64}, Δprod}(), Dict{Int64,Float64}(), default(q), Δprod(p))
+function NestedGrid(::Type{Val{p}}, ::Type{q}) where {p, q <: NestedQuadratureRule}
+  NestedGrid{p, q}(Dict{Int64,q}(), Dict{Int64,Δ{q}}(), Dict{SVector{p, Int64}, Δprod}(), Dict{Int64,Float64}(), default(q), Δprod(Val{p}))
 end
-function NestedGrid(::Type{Val{p}}, ::Type{q}, seq::Array{Int64,1}) where {p,q<:NestedQuadratureRule}
+function NestedGrid(::Type{Val{p}}, ::Type{q}, seq::Array{Int64,1}) where {p, q <: NestedQuadratureRule}
   NestedGrid{p, q}(Dict{Int64,q}(), Dict{Int64,Δ{q}}(), Dict{SVector{p, Int64}, Δprod}(), Dict{Int64,Float64}(), seq, Δprod(Val{p}))
 end
 
 #Type unstable calls.
-NestedGrid(p::Int, ::Type{q}) = NestedGrid(Val{p}, q)
-NestedGrid(p::Int, ::Type{q}, seq::Array{Int64,1}) = NestedGrid(Val{p}, q, seq)
+NestedGrid(p::Int, ::Type{q}) where q = NestedGrid(Val{p}, q)
+NestedGrid(p::Int, ::Type{q}, seq::Array{Int64,1}) where q = NestedGrid(Val{p}, q, seq)
 
 function get_node(Grid::NestedGrid, i::Int)
   Grid.node_value[i]
@@ -92,19 +86,19 @@ function get_Δ_prod!(Grid::NestedGrid{p,q}, i::SVector{p, Int64}) where {p,q<:N
   get!(() -> calc_Δ_prod!(Grid, i), Grid.Δ_prods, i)
 end
 function expand_grid!(Grid::NestedGrid{p,q}, Δ_prod::Δprod{p}) where {p,q}
-  for i ∈ keys(Δ_prod.w)
-    Grid.grid.w[i] = get(Grid.grid.w, i, 0.0) + Δ_prod.w[i]
+  for (i, j) ∈ Δ_prod.w
+    Grid.grid.w[i] = get(Grid.grid.w, i, 0.0) + j
   end
 end
 function expand_grid!(Grid::NestedGrid{p,q}, j::SVector{p, Int64}) where {p,q}
-  for i ∈ keys(get_Δ_prod!(Grid, j).w)
-    Grid.grid.w[i] = get(Grid.grid.w, i, 0.0) + Grid.Δ_prods[j].w[i]
+  for (i, k) ∈ get_Δ_prod!(Grid, j).w
+    Grid.grid.w[i] = get(Grid.grid.w, i, 0.0) + k
   end
 end
 
 @generated function calc_Δ_prod!(Grid::NestedGrid{p,q}, arg_indices::SVector{p,Int64}) where {p,q<:NestedQuadratureRule}
   quote
-    out = Δprod($p)
+    out = Δprod(Val{$p})
     @nloops $p i dim -> begin
       keys(get_Δ!(Grid, arg_indices[dim]).w)
     end begin
@@ -116,7 +110,7 @@ end
 end
 @generated function calc_Δ_prod(Grid::NestedGrid{p,q}, arg_indices::SVector{p,Int64}) where {p,q<:NestedQuadratureRule}
   quote
-    out = Δprod($p)
+    out = Δprod(Val{$p})
     @nloops $p i dim -> begin
       keys(get_Δ!(Grid, arg_indices[dim]).w)
     end begin
