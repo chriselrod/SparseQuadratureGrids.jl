@@ -35,7 +35,7 @@ end
 function NestedGrid(::Type{Val{p}}, ::Type{q}) where {p, q <: NestedQuadratureRule}
   NestedGrid{p, q}(Dict{Int64,q}(), Dict{Int64,Δ{q}}(), Dict{SVector{p, Int64}, Δprod}(), Dict{Int64,Float64}(), default(q), Δprod(Val{p}))
 end
-function NestedGrid(::Type{Val{p}}, ::Type{q}, seq::Array{Int64,1}) where {p, q <: NestedQuadratureRule}
+function NestedGrid(::Type{Val{p}}, ::Type{q}, seq::Vector{Int}) where {p, q <: NestedQuadratureRule}
   NestedGrid{p, q}(Dict{Int64,q}(), Dict{Int64,Δ{q}}(), Dict{SVector{p, Int64}, Δprod}(), Dict{Int64,Float64}(), seq, Δprod(Val{p}))
 end
 

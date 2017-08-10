@@ -82,7 +82,7 @@ function Δ_prod_error!(ab::AdaptiveBuild{q,p,F} where {q,F}, Δ_prod::SVector{p
   for (i, w) ∈ ab.Neighbors[Δ_prod].w
     out += w * eval_f!(ab, i)
   end
-  out
+  abs(out)
 end
 function get_node(ab::AdaptiveBuild{q,p,F} where {q,F}, i::SVector{p,Int}) where p
   get!(() -> get_node.(ab.Grid, i), ab.node_cache, i)
@@ -99,18 +99,18 @@ function eval_f!(ab::Adaptive{q,p,F,T} where {q,F,T}, i::SVector{p,Int}) where p
 end
 function cache_f(ab::AdaptiveRaw{GenzKeister,p,F} where F, i::SVector{p,Int}) where p
   node = get_node(ab, i)
-  ab.baseline_cache[i] = sum(node .^ 2)
-  exp(ab.f(node) + ab.baseline_cache[i])
+  ab.baseline_cache[i] = sum( node .^ 2 )
+  exp( ab.f(node) + ab.baseline_cache[i] )
 end
 function cache_f(ab::Adaptive{GenzKeister,p,F,T} where {F,T}, i::SVector{p,Int}) where p
   node = get_node(ab, i)
-  ab.baseline_cache[i] = sum(node .^ 2)
   res, ab.cache[i] = ab.f(node)
-  exp(res + ab.baseline_cache[i])
+  ab.baseline_cache[i] = sum( node .^ 2 )
+  exp( res + ab.baseline_cache[i] )
 end
 function cache_f(ab::Adaptive{KronrodPatterson,p,F,T} where {F,T}, i::SVector{p,Int}) where p
   res, ab.cache[i] = ab.f(get_node(ab, i))
-  exp(res)
+  exp( res )
 end
 
 @generated function smolyak!(Grid::NestedGrid{p,q}, l::Int) where {p,q<:NestedQuadratureRule}

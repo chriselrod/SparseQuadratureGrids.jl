@@ -55,33 +55,33 @@ end
 MatrixCache(::Type{Val{p}}) where p = MatrixCache{p}(Dict{Int,Array{Float64,2}}())
 MatrixCache(p::Int) = MatrixCache{p}(Dict{Int,Array{Float64,2}}())
 
-function FlatGrid(::Type{SmolyakBuild{q,p,F}}, f::F, seq::Vector{Int}) where {q,p,F <: Function}
+function FlatGrid(::Type{<:SmolyakBuild{q,p,F}}, f::F, seq::Vector{Int}) where {q,p,F <: Function}
   grid = NestedGrid(Val{p}, q, seq)
   smolyak!(grid, length(seq))
-  eval_grid(FlatGrid{q}(grid), f)
+  eval_grid(FlatGrid(grid), f)
 end
-function FlatGrid(::Type{SmolyakBuild{q,p,F}} where {F <: Function}, seq::Vector{Int}) where {p,q<:QuadratureRule}
+function FlatGrid(::Type{<:SmolyakBuild{q,p,F}} where {F <: Function}, seq::Vector{Int}) where {p,q<:QuadratureRule}
   grid = NestedGrid(Val{p}, q, seq)
   smolyak!(grid, length(seq))
-  FlatGrid{q}(grid)
+  FlatGrid(grid)
 end
 function eval_grid(g::FlatGrid, f::Function)
   @inbounds for i ∈ eachindex(g.density)
-    g.density[i] = g.baseline_weights[i] + f( g.nodes[i] )
+    g.density[i] = f( g.nodes[i] ) + g.baseline_weights[i]
   end
   normalize!(g)
 end
 function eval_grid(g::FlatGrid, f::Function, ::Type{T}) where T
-  cache = Vector{T}(length(g.weights))
-  @inbounds for i ∈ eachindex(g.density)
+  cache = Vector{T}( length( g.weights ) )
+  @inbounds for i ∈ eachindex( g.density )
     f_val, cache[i] = f( g.nodes[i] )
-    g.density[i] = g.baseline_weights[i] + f_val
+    g.density[i] = f_val + g.baseline_weights[i]
   end
   normalize!(g).density, cache
 end
 function normalize!(g::FlatGrid)
-  g.density .= exp.(minimum(g.density) .- g.density) .* g.weights
-  g.density ./= sum(g.density)
+  g.density .= exp.( g.density ) .* g.weights
+  g.density ./= sum( g.density )
   g
 end
 function Adapt(::Type{Adaptive{q, p, F, T}}, f::F, l::Int, n::Int) where {q,p, F <: Function, T}
@@ -119,7 +119,7 @@ function density(ab::AdaptiveRaw{q, p, F}) where {q,p,F}
     nodes[i] = get_node(ab, j)
   end
   density ./= sum(density)
-  FlatGrid{q}(nodes, weights, Vector{Float64}(n), density)
+  FlatGrid{p,q}(nodes, weights, Vector{Float64}(n), density)
 end
 
 function build!(GV::GridVessel{q, B, K, fr} where fr, ::Type{Bc}, f::F, i::K, l::Int = 6) where {q, p, F<:Function, B <: AdaptiveBuild{q}, Bc <: AdaptiveBuild{q, p, F}, K}
@@ -131,13 +131,15 @@ function build!(GV::GridVessel{q, B, K, fr} where fr, ::Type{Bc}, f::F, i::K, l:
   density(ab)
 end
 function build!(GV::GridVessel{q, B, K, fr} where fr, ::Type{Bc}, f::F, i::K) where {q, p, F<:Function, B <: aPrioriBuild{q}, Bc <: aPrioriBuild{q,p,F}, K}
-  GV.grids[i] = eval_grid(FlatGrid(Bc, i[end]), f)
+  GV.grids[i] = eval_grid(FlatGrid(Bc, ind(i)), f)
 end
 function build!(GV::GridVessel{q, B, K, fr} where fr, ::Type{Bc}, f::F, i::K) where {q, p, T, F<:Function, B <: aPrioriBuild{q}, Bc <: Smolyak{q,p,F,T}, K}
-  grid = FlatGrid(Bc, i[end])
+  grid = FlatGrid(Bc, ind(i))
   GV.grids[i] = grid
   eval_grid(grid, f, T)
 end
+ind(i::Vector{Int}) = i
+ind(i::Tuple{Int,Vector{Int}}) = i[2]
 
 convert(::Type{FlattenedGrid}, ab::AdaptiveBuild) = FlattenedGrid(ab)
 convert(::Type{FlatGrid}, ab::AdaptiveBuild) = FlatGrid(ab)
@@ -205,7 +207,7 @@ function FlattenedGrid(Grid::NestedGrid{p,q}) where {p,q<:NestedQuadratureRule}
   nodes, weights = flatten_nodes_and_weights(Grid)
   FlattenedGrid(nodes, weights, q)
 end
-FlattenedGrid(n::Array{Float64,2}, w::Vector{Float64}, ::Type{GenzKeister}) = FlattenedGrid(n, w, - vec(sum(n .^ 2, [1])), GenzKeister)
+FlattenedGrid(n::Array{Float64,2}, w::Vector{Float64}, ::Type{GenzKeister}) = FlattenedGrid(n, w, vec(sum(n .^ 2, [1])), GenzKeister)
 FlattenedGrid(n::Array{Float64,2}, w::Vector{Float64}, ::Type{KronrodPatterson}) = FlattenedGrid(n, w, zeros(w), KronrodPatterson)
 function FlattenedGrid(n::Array{Float64,2}, w::Vector{Float64}, b::Vector{Float64}, ::Type{q}) where {q}
   FlattenedGrid{q}(n, w, b, similar(b))
@@ -234,11 +236,11 @@ function FlattenedGrid(ab::AdaptiveBuild{KronrodPatterson,p,F}) where {p,F}
 end
 function FlatGrid(Grid::NestedGrid{p,q}) where {p,q<:NestedQuadratureRule}
   nodes, weights = flat_nodes_and_weights(Grid)
-  Flat(nodes, weights, q)
+  FlatGrid(nodes, weights, q)
 end
-FlatGrid(n::Vector{SVector{p,Float64}} where p, w::Vector{Float64}, ::Type{GenzKeister}) = FlatGrid(n, w, - squared_sum.(n), GenzKeister)
+FlatGrid(n::Vector{SVector{p,Float64}} where p, w::Vector{Float64}, ::Type{GenzKeister}) = FlatGrid(n, w, squared_sum.(n), GenzKeister)
 FlatGrid(n::Vector{SVector{p,Float64}} where p, w::Vector{Float64}, ::Type{KronrodPatterson}) = FlatGrid(n, w, zeros(w), KronrodPatterson)
-function FlatGrid(n::Vector{SVector{p,Float64}} where p, w::Vector{Float64}, b::Vector{Float64}, ::Type{q}) where {q}
+function FlatGrid(n::Vector{SVector{p,Float64}}, w::Vector{Float64}, b::Vector{Float64}, ::Type{q}) where {p,q}
   FlatGrid{p,q}(n, w, b, similar(b))
 end
 function FlatGrid(ab::AdaptiveBuild{GenzKeister,p,F}) where {p,F}
@@ -312,8 +314,8 @@ end
 
 
 function set_baseline!(Grid::SplitWeights{p, GenzKeister}) where {p}
-  @views Grid.baseline_weights_positive .= - sum(Grid.nodes_positive .^ 2, [1])[1,:]
-  @views Grid.baseline_weights_negative .= - sum(Grid.nodes_negative .^ 2, [1])[1,:]
+  @views Grid.baseline_weights_positive .= sum(Grid.nodes_positive .^ 2, [1])[1,:]
+  @views Grid.baseline_weights_negative .= sum(Grid.nodes_negative .^ 2, [1])[1,:]
   Grid.weight_sum[1] = sum(Grid.weights_positive)
   Grid.weight_sum[2] = sum(Grid.weights_negative)
 end
