@@ -202,12 +202,12 @@ function flat_nodes_and_weights(Grid::NestedGrid{p,q}) where {p,q}
   end
   nodes, weights
 end
-squared_sum(x::AbstractArray) = sum(x .^ 2)
+
 function FlattenedGrid(Grid::NestedGrid{p,q}) where {p,q<:NestedQuadratureRule}
   nodes, weights = flatten_nodes_and_weights(Grid)
   FlattenedGrid(nodes, weights, q)
 end
-FlattenedGrid(n::Array{Float64,2}, w::Vector{Float64}, ::Type{GenzKeister}) = FlattenedGrid(n, w, vec(sum(n .^ 2, [1])), GenzKeister)
+FlattenedGrid(n::Array{Float64,2}, w::Vector{Float64}, ::Type{GenzKeister}) = FlattenedGrid(n, w, vec(sum(abs2, n, [1])), GenzKeister)
 FlattenedGrid(n::Array{Float64,2}, w::Vector{Float64}, ::Type{KronrodPatterson}) = FlattenedGrid(n, w, zeros(w), KronrodPatterson)
 function FlattenedGrid(n::Array{Float64,2}, w::Vector{Float64}, b::Vector{Float64}, ::Type{q}) where {q}
   FlattenedGrid{q}(n, w, b, similar(b))
@@ -238,7 +238,7 @@ function FlatGrid(Grid::NestedGrid{p,q}) where {p,q<:NestedQuadratureRule}
   nodes, weights = flat_nodes_and_weights(Grid)
   FlatGrid(nodes, weights, q)
 end
-FlatGrid(n::Vector{SVector{p,Float64}} where p, w::Vector{Float64}, ::Type{GenzKeister}) = FlatGrid(n, w, squared_sum.(n), GenzKeister)
+FlatGrid(n::Vector{SVector{p,Float64}} where p, w::Vector{Float64}, ::Type{GenzKeister}) = FlatGrid(n, w, sum.(abs2, n), GenzKeister)
 FlatGrid(n::Vector{SVector{p,Float64}} where p, w::Vector{Float64}, ::Type{KronrodPatterson}) = FlatGrid(n, w, zeros(w), KronrodPatterson)
 function FlatGrid(n::Vector{SVector{p,Float64}}, w::Vector{Float64}, b::Vector{Float64}, ::Type{q}) where {p,q}
   FlatGrid{p,q}(n, w, b, similar(b))
@@ -314,8 +314,8 @@ end
 
 
 function set_baseline!(Grid::SplitWeights{p, GenzKeister}) where {p}
-  @views Grid.baseline_weights_positive .= sum(Grid.nodes_positive .^ 2, [1])[1,:]
-  @views Grid.baseline_weights_negative .= sum(Grid.nodes_negative .^ 2, [1])[1,:]
+  @views Grid.baseline_weights_positive .= sum(abs2, Grid.nodes_positive, [1])[1,:]
+  @views Grid.baseline_weights_negative .= sum(abs2, Grid.nodes_negative, [1])[1,:]
   Grid.weight_sum[1] = sum(Grid.weights_positive)
   Grid.weight_sum[2] = sum(Grid.weights_negative)
 end

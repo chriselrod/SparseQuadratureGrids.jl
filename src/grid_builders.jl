@@ -27,6 +27,7 @@ end
 struct SmolyakRaw{q, p, F} <: aPrioriBuild{q, p, F} end
 struct Smolyak{q, p, F, T} <: aPrioriBuild{q, p, F} end
 RawBuild{q, p, F} = Union{SmolyakRaw{q, p, F}, AdaptiveRaw{q, p, F}}
+CacheBuild{q, p, F} = Union{Adaptive{q, p, F}, Smolyak{q, p, F}}
 SmolyakBuild{q, p, F} = Union{SmolyakRaw{q, p, F}, Smolyak{q, p, F, T} where T}
 
 function e_j(::Type{Val{p}}, j::Int) where p
@@ -99,13 +100,13 @@ function eval_f!(ab::Adaptive{q,p,F,T} where {q,F,T}, i::SVector{p,Int}) where p
 end
 function cache_f(ab::AdaptiveRaw{GenzKeister,p,F} where F, i::SVector{p,Int}) where p
   node = get_node(ab, i)
-  ab.baseline_cache[i] = sum( node .^ 2 )
+  ab.baseline_cache[i] = sum(abs2, node )
   exp( ab.f(node) + ab.baseline_cache[i] )
 end
 function cache_f(ab::Adaptive{GenzKeister,p,F,T} where {F,T}, i::SVector{p,Int}) where p
   node = get_node(ab, i)
   res, ab.cache[i] = ab.f(node)
-  ab.baseline_cache[i] = sum( node .^ 2 )
+  ab.baseline_cache[i] = sum(abs2, node )
   exp( res + ab.baseline_cache[i] )
 end
 function cache_f(ab::Adaptive{KronrodPatterson,p,F,T} where {F,T}, i::SVector{p,Int}) where p

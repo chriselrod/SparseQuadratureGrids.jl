@@ -6,6 +6,7 @@ using StaticArrays
 
 import Base.length
 import Base.getindex
+import Base.Val
 
 export  SplitWeights,
         QuadratureRule,
