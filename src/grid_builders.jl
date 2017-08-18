@@ -1,21 +1,10 @@
 abstract type GridBuild{q <: QuadratureRule} end
 abstract type aPrioriBuild{q, p, F} <: GridBuild{q} end
-abstract type AdaptiveBuild{q, p, F} <: GridBuild{q} end
-struct AdaptiveRaw{q, p, F} <: AdaptiveBuild{q, p, F}
+abstract type AdaptiveBuild{q, p, F, A, B} <: GridBuild{q} end
+struct AdaptiveRaw{q, p, F, A, B, d} <: AdaptiveBuild{q, p, F, A, B}
   F_cache::Dict{SVector{p,Int}, Float64}
-  node_cache::Dict{SVector{p,Int}, Vector{Float64}}
-  baseline_cache::Dict{SVector{p,Int}, Float64}
-  NeighborError::Dict{SVector{p,Int}, Float64}
-  Neighbors::Dict{SVector{p, Int}, Δprod{p}}
-  Grid::NestedGrid{p, q}
-  e::SVector{p, SVector{p,Int}}
-  f::F
-  l::Int #Max depth. 6 for GenzKeister & KronrodPatterson. Can be arbitrarilly high for GaussHermite.
-end
-struct Adaptive{q, p, F, T} <: AdaptiveBuild{q, p, F}
-  cache::Dict{SVector{p, Int}, T}
-  F_cache::Dict{SVector{p,Int}, Float64}
-  node_cache::Dict{SVector{p,Int}, Vector{Float64}}
+  cache::Dict{SVector{p,Int}, SVector{d,Float64}}
+  node_cache::Dict{SVector{p,Int}, SVector{p,Float64}}
   baseline_cache::Dict{SVector{p,Int}, Float64}
   NeighborError::Dict{SVector{p,Int}, Float64}
   Neighbors::Dict{SVector{p, Int}, Δprod{p}}
@@ -23,21 +12,40 @@ struct Adaptive{q, p, F, T} <: AdaptiveBuild{q, p, F}
   e::SVector{p, SVector{p,Int}}
   f::F
   l::Int
+  μ::A
+  U::B
+end
+struct Adaptive{q, p, F, A, B, T} <: AdaptiveBuild{q, p, F, A, B}
+  cache::Dict{SVector{p, Int}, T}
+  F_cache::Dict{SVector{p,Int}, Float64}
+  node_cache::Dict{SVector{p,Int}, SVector{p,Float64}}
+  baseline_cache::Dict{SVector{p,Int}, Float64}
+  NeighborError::Dict{SVector{p,Int}, Float64}
+  Neighbors::Dict{SVector{p, Int}, Δprod{p}}
+  Grid::NestedGrid{p, q}
+  e::SVector{p, SVector{p,Int}}
+  f::F
+  l::Int
+  μ::A
+  U::B
 end
 struct SmolyakRaw{q, p, F} <: aPrioriBuild{q, p, F} end
 struct Smolyak{q, p, F, T} <: aPrioriBuild{q, p, F} end
 RawBuild{q, p, F} = Union{SmolyakRaw{q, p, F}, AdaptiveRaw{q, p, F}}
 CacheBuild{q, p, F} = Union{Adaptive{q, p, F}, Smolyak{q, p, F}}
 SmolyakBuild{q, p, F} = Union{SmolyakRaw{q, p, F}, Smolyak{q, p, F, T} where T}
+default(::Type{AB}) where {AB <: AdaptiveBuild} = 1_000
+default(::Type{AP}) where {q, AP <: aPrioriBuild{q}} = default(q)
 
-function e_j(::Type{Val{p}}, j::Int) where p
-  out = zeros(Int, p)
-  out[j] = 1
-  SVector{p}(out)
+function Base.sizehint!(ab::AdaptiveBuild, n::Int)
+    sizehint!(ab.cache, n)
+    sizehint!(ab.F_cache, n)
+    sizehint!(ab.node_cache, n)
+    sizehint!(ab.baseline_cache, n)
+    sizehint!(ab.Grid.grid.w, n)
 end
-function initialize_e(::Type{Val{p}}) where p
-  SVector{p}(e_j.(Val{p}, 1:p))
-end
+
+initialize_e(::Type{Val{p}}) where p = SVector{p}(svectors(eye(Int, p), Val{p}))
 
 function add_neighbors!(ab::AdaptiveBuild{q,p,F} where {q,F}, Δ_prod::SVector{p,Int}) where p
   for i ∈ 1:p
@@ -67,15 +75,16 @@ end
 
 
 function construct!(ab::AdaptiveBuild{q,p,F} where {q,F}, n::Int) where p
-  Δ_prod = @SVector ones(Int, p)
-  ab.Grid.Δ_prods[Δ_prod] = calc_Δ_prod!(ab.Grid, Δ_prod)
-  while length(ab.Grid) < n
-    add_neighbors!(ab, Δ_prod)
-    Δ_prod = reduce((i,v) ->  i[2] > v[2] ? i : v, ab.NeighborError)[1]
-    ab.Grid.Δ_prods[Δ_prod] = pop!(ab.Neighbors, Δ_prod)
-    expand_grid!(ab.Grid, Δ_prod)
-    delete!(ab.NeighborError, Δ_prod)
-  end
+    sizehint!(ab, n)
+    Δ_prod = SVector{p}(ones(Int, p))
+    ab.Grid.Δ_prods[Δ_prod] = calc_Δ_prod!(ab.Grid, Δ_prod)
+    while length(ab.Grid) < n
+        add_neighbors!(ab, Δ_prod)
+        Δ_prod = reduce((i,v) ->  i[2] > v[2] ? i : v, ab.NeighborError)[1]
+        ab.Grid.Δ_prods[Δ_prod] = pop!(ab.Neighbors, Δ_prod)
+        expand_grid!(ab.Grid, Δ_prod)
+        delete!(ab.NeighborError, Δ_prod)
+    end
 end
 
 function Δ_prod_error!(ab::AdaptiveBuild{q,p,F} where {q,F}, Δ_prod::SVector{p,Int}) where p
@@ -85,34 +94,43 @@ function Δ_prod_error!(ab::AdaptiveBuild{q,p,F} where {q,F}, Δ_prod::SVector{p
   end
   abs(out)
 end
-function get_node(ab::AdaptiveBuild{q,p,F} where {q,F}, i::SVector{p,Int}) where p
+function get_node(ab::AdaptiveBuild{GenzKeister,p,F} where {F}, i::SVector{p,Int}) where p
   get!(() -> get_node.(ab.Grid, i), ab.node_cache, i)
 end
+function get_node(ab::AdaptiveBuild{KronrodPatterson,p,F} where {F}, i::SVector{p,Int}) where p
+    get!(() -> calc_node(ab, i), ab.node_cache, i)
+end
+function calc_node(ab::AdaptiveBuild{KronrodPatterson}, i::SVector{p,Int}) where p
+    snode = get_node.(ab.Grid, i)
+    if !haskey(ab.baseline_cache, i)
+        ab.baseline_cache[i] = sum(log_sigmoid_jacobian, snode)
+    end
+    sigmoid.(snode)
+end
+function transformed_node(ab::AdaptiveRaw, i::SVector{p,Int}, v::SVector{p,Float64}) where p
+    get!(() -> ab.μ + ab.U * v, ab.cache, i)
+end
 
-function eval_f!(ab::AdaptiveRaw{GenzKeister,p,F} where F, i::SVector{p,Int}) where p
+function eval_f!(ab::AdaptiveBuild, i::SVector)
   get!(() -> cache_f(ab, i), ab.F_cache, i)
 end
-function eval_f!(ab::AdaptiveRaw{KronrodPatterson,p,F} where F, i::SVector{p,Int}) where p
-  get!(() -> exp(ab.f(get_node(ab, i))), ab.F_cache, i)
-end
-function eval_f!(ab::Adaptive{q,p,F,T} where {q,F,T}, i::SVector{p,Int}) where p
-  get!(() -> cache_f(ab, i), ab.F_cache, i)
-end
-function cache_f(ab::AdaptiveRaw{GenzKeister,p,F} where F, i::SVector{p,Int}) where p
+function cache_f(ab::AdaptiveRaw, i::SVector)
   node = get_node(ab, i)
-  ab.baseline_cache[i] = sum(abs2, node )
-  exp( ab.f(node) + ab.baseline_cache[i] )
+  exp( ab.f(transformed_node(ab, i, node)) + get_baseline!(ab, i, node) )
 end
-function cache_f(ab::Adaptive{GenzKeister,p,F,T} where {F,T}, i::SVector{p,Int}) where p
+function cache_f(ab::Adaptive, i::SVector)
   node = get_node(ab, i)
-  res, ab.cache[i] = ab.f(node)
-  ab.baseline_cache[i] = sum(abs2, node )
-  exp( res + ab.baseline_cache[i] )
+  res, ab.cache[i] = ab.f(ab.μ + ab.U * node)
+  exp( res + get_baseline!(ab, i, node) )
 end
-function cache_f(ab::Adaptive{KronrodPatterson,p,F,T} where {F,T}, i::SVector{p,Int}) where p
-  res, ab.cache[i] = ab.f(get_node(ab, i))
-  exp( res )
+@inline function get_baseline!(ab::AdaptiveBuild{KronrodPatterson}, i::SVector, ::AbstractVector)
+    get!( () -> sum(log_sigmoid_jacobian, get_node.(ab.Grid, i)), ab.baseline_cache, i )
 end
+@inline function get_baseline!(ab::AdaptiveBuild{GenzKeister}, i::SVector, x::AbstractVector)
+    get!( () -> sum(abs2, x), ab.baseline_cache, i )
+end
+@inline sigmoid(x::Real) = log( (1 + x)/(1 - x) )
+@inline log_sigmoid_jacobian(x::Real) = - log( 1 - x^2 )
 
 @generated function smolyak!(Grid::NestedGrid{p,q}, l::Int) where {p,q<:NestedQuadratureRule}
   quote

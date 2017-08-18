@@ -1,103 +1,93 @@
-#Why the p in grid interfaces?
-abstract type GridInterface{q <: QuadratureRule} end
-abstract type CollapsedGrid{q <: QuadratureRule} end
-struct SplitWeights{p,q<: QuadratureRule}
-  nodes_positive::Array{Float64,2}
-  nodes_negative::Array{Float64,2}
-  weights_positive::Array{Float64,1}
-  weights_negative::Array{Float64,1}
-  baseline_weights_positive::Array{Float64,1}
-  baseline_weights_negative::Array{Float64,1}
-  weight_sum::Array{Float64,1}
-  total_count::Int64
-end
-struct FlattenedGrid{q} <: CollapsedGrid{q}
-  nodes::Array{Float64,2}
-  weights::Vector{Float64}
-  baseline_weights::Vector{Float64}
-  density::Vector{Float64}
-end
-struct FlatGrid{p,q} <: CollapsedGrid{q}
-  nodes::Vector{SVector{p,Float64}}
-  weights::Vector{Float64}
-  baseline_weights::Vector{Float64}
-  density::Vector{Float64}
-end
-struct MatrixCache{p}
-  d::Dict{Int,Array{Float64,2}}
+function DynamicGridVessel(::Type{q},::Type{B},::Type{K},::Type{Val{p}}, ::Type{N}, ::Type{C}) where {q <: NestedQuadratureRule, B <: GridBuild, K, p, N, C}
+  DynamicGridVessel{q,B,K,p,N,C}(Dict{K,FlatGrid{q,N,C}}(),Array{Float64,2}(p,p), MatrixCache(Val{p}))
 end
 
-struct GridContainer{p,q} <: GridInterface{q}
-  grids::Dict{Int, FlattenedGrid{q}}
-  U::Array{Float64,2}
-  l::Int
-  seq::Vector{Int}
-  mats::MatrixCache{p}
-end
-abstract type GridVessel{q, B <: GridBuild, K, p}  <: GridInterface{q} end
-struct DynamicGridVessel{q, B, K, p} <: GridVessel{q, B, K, p}
-  grids::Dict{K, FlatGrid{dr,q} where dr}
-  U::Array{Float64, 2}
-  mats::MatrixCache{p}
-end
-struct StaticGridVessel{q, B, K, p} <: GridVessel{q, B, K, p}
-  grids::Dict{K, FlatGrid{p,q}}
-  U::Array{Float64, 2}
-  mats::MatrixCache{p}
-end
-function DynamicGridVessel(::Type{q},::Type{B},::Type{K},::Type{Val{p}}) where {q <: NestedQuadratureRule, B <: GridBuild, K, p}
-  DynamicGridVessel{q,B,K,p}(Dict{K,FlatGrid{dr,q} where dr}(),Array{Float64,2}(p,p), MatrixCache(Val{p}))
-end
-function StaticGridVessel(::Type{q},::Type{B},::Type{K},::Type{Val{p}}) where {q <: NestedQuadratureRule, B <: GridBuild, K, p}
-  StaticGridVessel{q,B,K,p}(Dict{K,FlatGrid{p,q}}(),Array{Float64,2}(p,p), MatrixCache(Val{p}))
-end
 
 MatrixCache(::Type{Val{p}}) where p = MatrixCache{p}(Dict{Int,Array{Float64,2}}())
 MatrixCache(p::Int) = MatrixCache{p}(Dict{Int,Array{Float64,2}}())
 
-function FlatGrid(::Type{<:SmolyakBuild{q,p,F}}, f::F, seq::Vector{Int}) where {q,p,F <: Function}
-  grid = NestedGrid(Val{p}, q, seq)
-  smolyak!(grid, length(seq))
-  eval_grid(FlatGrid(grid), f)
+function MatrixVecSVec(x::Matrix, ::Type{Val{p}}) where p
+    MatrixVecSVec(x, svectors(x, Val{p}))
 end
-function FlatGrid(::Type{<:SmolyakBuild{q,p,F}} where {F <: Function}, seq::Vector{Int}) where {p,q<:QuadratureRule}
-  grid = NestedGrid(Val{p}, q, seq)
-  smolyak!(grid, length(seq))
-  FlatGrid(grid)
+function MatrixVecSVec(x::Vector{SVector{p,T}} where T<:Real) where p
+    MatrixVecSVec(mat(x), x)
 end
-function eval_grid(g::FlatGrid, f::Function)
-  @inbounds for i ∈ eachindex(g.density)
-    g.density[i] = f( g.nodes[i] ) + g.baseline_weights[i]
-  end
-  normalize!(g)
+function svectors(x::Matrix{T}, ::Type{Val{p}}) where {p,T}
+    reinterpret(SVector{p,T}, x, (size(x,2),))
 end
-function eval_grid(g::FlatGrid, f::Function, ::Type{T}) where T
-  cache = Vector{T}( length( g.weights ) )
-  @inbounds for i ∈ eachindex( g.density )
-    f_val, cache[i] = f( g.nodes[i] )
-    g.density[i] = f_val + g.baseline_weights[i]
-  end
-  normalize!(g).density, cache
+function mat(x::Vector{SVector{p,Float64}}) where p
+    reinterpret(Float64, x, ( p, length(x) ) )
 end
-function normalize!(g::FlatGrid)
-  g.density .= exp.( g.density ) .* g.weights
-  g.density ./= sum( g.density )
-  g
-end
-function Adapt(::Type{Adaptive{q, p, F, T}}, f::F, l::Int, n::Int) where {q,p, F <: Function, T}
-  ab = Adaptive{q, p, F, T}(Dict{SVector{p, Int},T}(), Dict{SVector{p,Int}, Float64}(), Dict{SVector{p,Int}, Vector{Float64}}(), Dict{SVector{p,Int}, Float64}(), Dict{SVector{p,Int},Float64}(), Dict{SVector{p, Int64}, Δprod{p}}(), NestedGrid(Val{p}, q), initialize_e(Val{p}), f, l)
-  construct!(ab, n)
-  ab
-end
-function Adapt(::Type{AdaptiveRaw{q, p, F}}, f::F, l::Int, n::Int) where {q,p, F <: Function}
-  ab = AdaptiveRaw{q, p, F}(Dict{SVector{p,Int}, Float64}(), Dict{SVector{p,Int}, Vector{Float64}}(), Dict{SVector{p,Int}, Float64}(), Dict{SVector{p,Int},Float64}(), Dict{SVector{p, Int64}, Δprod{p}}(), NestedGrid(Val{p}, q), initialize_e(Val{p}), f, l)
-  construct!(ab, n)
-  ab
-end
-#Caution: this method is a dynamic dispatch.
-Adaptive(p::Int, ::F, ::Type{T}, n::Int = 1_000, q::QuadratureRule = GenzKeister, l::Int = 6) where {F <: Function, T} = Adaptive(Adaptive{q, p, F, T}, l, n)
+@inline convert(::Type{Vector{SVector{p,T}}}, x::Matrix{T}) where {p,T} = svectors(x, Val{p})
+@inline convert(::Type{Matrix{T}}, x::Vector{SVector{p,T}} where p) where T = mat(x)
+@inline convert(::Type{MatrixVecSVec{p, T}}, x::Matrix{T} ) where {p,T} = MatrixVecSVec(x, Val{p})
+@inline convert(::Type{MatrixVecSVec{p, T}}, x::Vector{SVector{p,T}} ) where {p,T} = MatrixVecSVec(x)
 
-function density(ab::Adaptive{q, p, F, T}) where {q,p,F,T}
+
+### These functions update the cached grid in place.
+#LogDensities' Model() function uses heuristics to choose Benchmark-based heurstics (ie, >13 ? dimensions) to choose whether iterating over SVectors or a BLAS call are more performant.
+@inline update_cache_grid!(nodes::Matrix, cache::MatrixVecSVec, μ, U) = update_cache_grid(nodes, cache.M, μ, U)
+function update_cache_grid!(nodes::Matrix, cache::Matrix, μ, U)
+    cache .= μ
+    Base.LinAlg.BLAS.gemm!('N','N', 1.0, U, nodes, 1.0, cache)
+end
+@inline update_cache_grid!(nodes::Vector{SVector{p,T}} where {p,T}, cache::MatrixVecSVec, μ, U) = update_cache_grid!( nodes, cache.S, μ, U )
+function update_cache_grid!(nodes::Vector{SVector{p,T}}, cache::Vector{SVector{d,T}}, μ, U) where {p, d, T}
+    U_sm = SMatrix{d,p}(U)
+    μ_sv = SVector{d}(μ)
+    @inbounds for (i, j) in enumerate(nodes)
+        cache[i] = μ_sv + U_sm * j
+    end
+end
+
+
+#A sliding view evaluates all the grid points.
+#This saves on any reading/writing one may have to do to memory.
+#The advantage may be negligble for functions of simple vectors, but could save a lot of memory rewriting / object construction for other data types, like those offered in ConstrainedParameters.
+function eval_f!(cache::Matrix, weights::Vector, density::Vector, baseline::Vector, svf::SlidingVecFun)
+    set!(svf, cache)
+    @inbounds for i ∈ eachindex(density)
+        density[i] = weights[i] * exp( baseline[i] + eval!(svf) )
+    end
+    density ./= sum(density)
+end
+@inline eval_f!(cache::MatrixVecSVec, weights::Vector, density::Vector, baseline::Vector, svf::SlidingVecFun) = eval_f!(cache.M, weights, density, baseline, svf)
+@inline eval_f!(FG::FlatGrid, svf::SlidingVecFun) = eval_f!(FG.cache, FG.weights, FG.density, FG.baseline, svf)
+function eval_grid!(FG::FlatGrid, svf::SlidingVecFun, μ::AbstractVector, U::AbstractMatrix)
+    update_cache_grid!(FG.nodes, FG.cache, μ, U)
+    eval_f!(FG, svf)
+    FG
+end
+function eval_grid!(FG::FlatGrid, f::Function, μ::AbstractVector, U::AbstractMatrix, ::Type{T}) where T
+    update_cache_grid!(FG.nodes, FG.cache, μ, U)
+    eval_f!(FG, FG.cache, f, T)
+end
+
+@inline eval_f!(g::FlatGrid, cache::MatrixVecSVec{p,Float64}, f::Function, ::Type{T}) where {p,T} = eval_f!(g, cache.S, f, T)
+function eval_f!(g::FlatGrid, cache::Vector{SVector{p,Float64}}, f::Function, ::Type{T}) where {p,T}
+    param_cache = Vector{T}( length( g.weights ) )
+    @inbounds for (i,j) ∈ enumerate( cache )
+        f_val, param_cache[i] = f( j )
+        g.density[i] = g.weights[i] * exp( g.baseline[i] + f_val )
+    end
+    g.density ./= sum(g.density)
+    param_cache, g.density
+end
+function Adapt(::Type{Adaptive{q, p, F, T}}, f::F, l::Int, n::Int, μ::A, U::B) where {q,p, F <: Function, A, B, T}
+    ab = Adaptive{q, p, F, A, B, T}(Dict{SVector{p, Int},T}(), Dict{SVector{p,Int}, Float64}(), Dict{SVector{p,Int}, SVector{p, Float64}}(), Dict{SVector{p,Int}, Float64}(), Dict{SVector{p,Int},Float64}(), Dict{SVector{p, Int64}, Δprod{p}}(), NestedGrid(Val{p}, q), initialize_e(Val{p}), f, l, μ, U)
+    construct!(ab, n)
+    ab
+end
+function Adapt(::Type{AdaptiveRaw{q, p, SVF}}, svf::SVF, l::Int, n::Int, μ::A, U::B) where {q,p, SVF <: SlidingVecFun, d, A <: SVector{d}, B}
+    ab = AdaptiveRaw{q, p, SVF, A, B, d}(Dict{SVector{p,Int}, Float64}(),Dict{SVector{p,Int}, SVector{d,Float64}}(), Dict{SVector{p,Int}, SVector{p, Float64}}(), Dict{SVector{p,Int}, Float64}(), Dict{SVector{p,Int},Float64}(), Dict{SVector{p, Int64}, Δprod{p}}(), NestedGrid(Val{p}, q), initialize_e(Val{p}), svf, l, μ, U)
+    construct!(ab, n)
+    ab
+end
+
+
+Adaptive(::Type{Val{p}}, ::F, ::Type{T}, n::Int = 1_000, ::Type{q} = GenzKeister, l::Int = 6) where {q,p,F,T} = Adaptive(Adaptive{q, p, F, T}, l, n)
+
+function density(ab::Adaptive{q, d, F, A, B, T} where {q, d, F, A, B}, ::Type{N} where N, ::Type{C} where C, ::Type{Val{p}} where p) where T
   n = length(ab.Grid.grid)
   density = Vector{Float64}(n)
   params = Vector{T}(n)
@@ -106,146 +96,109 @@ function density(ab::Adaptive{q, p, F, T}) where {q,p,F,T}
     params[i] = ab.cache[j]
   end
   density ./= sum(density)
-  density, params
+  params, density
 end
-function density(ab::AdaptiveRaw{q, p, F}) where {q,p,F}
+function density(ab::AdaptiveRaw{q, d, F} where F, ::Type{N}, ::Type{C}, ::Type{Val{p}}) where {q,p,d,N,C}
   n = length(ab.Grid.grid)
-  nodes = Array{SVector{p,Float64}}(n)
+  nodes = Array{SVector{d,Float64}}(n)
+  cache = Array{SVector{p,Float64}}(n)
   weights = Vector{Float64}(n)
   density = Vector{Float64}(n)
   @inbounds for (i, (j,k)) ∈ enumerate(ab.Grid.grid.w)
     weights[i] = k
     density[i] = ab.F_cache[j] * k
     nodes[i] = get_node(ab, j)
+    cache[i] = ab.cache[j]
   end
   density ./= sum(density)
-  FlatGrid{p,q}(nodes, weights, Vector{Float64}(n), density)
+  FlatGrid{q,N,C}(convert(N,nodes), convert(C,cache), weights, density, Vector{Float64}(n))
 end
 
-function build!(GV::GridVessel{q, B, K, fr} where fr, ::Type{Bc}, f::F, i::K, l::Int = 6) where {q, p, F<:Function, B <: AdaptiveBuild{q}, Bc <: AdaptiveBuild{q, p, F}, K}
-  ab = Adapt(Bc, f, l, i[end])
-  GV.grids[i] = FlatGrid(ab)
+function build!(GV::DynamicGridVessel{q, B, K, p, N, C}, ::Type{Bc}, f, i::K, μ::Vector, U::Matrix, l::Int = 6) where {q, p, d, B <: AdaptiveBuild{q}, Bc <: AdaptiveBuild{q, d}, K, N, C}
+  ab = Adapt(Bc, f, l, i[end], SVector{p}(μ), SizedArray{Tuple{p,d}}(U))
+  GV.grids[i] = FlatGrid(ab, N, C, Val{p})
   for v ∈ values(ab.Neighbors)
     expand_grid!(ab.Grid, v)
   end
-  density(ab)
+  density(ab, N, C, Val{p})
 end
-function build!(GV::GridVessel{q, B, K, fr} where fr, ::Type{Bc}, f::F, i::K) where {q, p, F<:Function, B <: aPrioriBuild{q}, Bc <: aPrioriBuild{q,p,F}, K}
-  GV.grids[i] = eval_grid(FlatGrid(Bc, ind(i)), f)
+function build!(GV::DynamicGridVessel{q, B, K, p, N, C}, ::Type{Bc}, svf::SVF, i::K, μ::AbstractVector, U::AbstractMatrix) where {q, p, SVF <: SlidingVecFun, B <: aPrioriBuild{q}, Bc <: aPrioriBuild{q,p,SVF}, K, N, C}
+    GV.grids[i] = grid = FlatGrid(Bc, ind(i), Val{p}, N, C)
+    eval_grid!(grid, svf, μ, U)
 end
-function build!(GV::GridVessel{q, B, K, fr} where fr, ::Type{Bc}, f::F, i::K) where {q, p, T, F<:Function, B <: aPrioriBuild{q}, Bc <: Smolyak{q,p,F,T}, K}
-  grid = FlatGrid(Bc, ind(i))
-  GV.grids[i] = grid
-  eval_grid(grid, f, T)
+function build!(GV::DynamicGridVessel{q, B, K, p, N, C}, ::Type{Bc}, f::F, i::K, μ::AbstractVector, U::AbstractMatrix) where {q, p, T, F<:Function, B <: aPrioriBuild{q}, Bc <: Smolyak{q,p,F,T}, K, N, C}
+    GV.grids[i] = grid = FlatGrid(Bc, ind(i), Val{p}, N, C)
+    eval_grid!(grid, f, μ, U, T)
 end
-ind(i::Vector{Int}) = i
-ind(i::Tuple{Int,Vector{Int}}) = i[2]
-
-convert(::Type{FlattenedGrid}, ab::AdaptiveBuild) = FlattenedGrid(ab)
-convert(::Type{FlatGrid}, ab::AdaptiveBuild) = FlatGrid(ab)
-
-#calc_grid! performs a costly dynamic dispatch. The grids themselves are parametrized in their dimensionality.
-#Benchmarks suggested it only takes a small handful of operations for the advantages of StaticArrays to outweigh the cost of a dynamic dispatch.
-#It may be worthwhile to replace the [n x p] Array{Float64,2} with a [n] Vector{SVector{p}} in the FlattenedGrid.
-#This would either increase the frequency of dynamic dispatces, or require some restructuring of the parametrization.
-#If p=10, StaticArray flat grids could save > 400 microseconds (minus cost of extra dynamic dispatches).
-#These dynamic dispatches could be avoided if we allow the option of forcing the Hessian to be full rank.
-#This suggests two API modes of full rank vs dimension reduction.
-#Full-rank forcing provides the advantage of preventing silent failures of the optimization step to find the posterior unconstrained mode.
-#No additional dynamic dispatches needed on first call; only on future "eval_grid" calls.
-function calc_grid!(GV::DynamicGridVessel{q, B, K, fr} where {p, q <: QuadratureRule, fr}, i::K, f::F ) where {B <: GridBuild, F <: Function, K}
-  build!(GV, B{i[1],F}, f, i)#::(FlatGrid{p,q} where p) No point annotating, because the return remains dynamic.
-end
-function calc_grid!(GV::DynamicGridVessel{q, B, K, fr} where {p, q <: QuadratureRule, fr}, i::K, f::F, ::Type{T}) where {B <: GridBuild, F <: Function, T, K}
-  build!(GV, B{i[1],F,T}, f, i)::Tuple{Vector{Float64},Vector{P}}
-end
-
-function calc_grid!(GV::StaticGridVessel{q, B, K, p} where {q <: QuadratureRule}, i::K, f::F ) where {p, B <: GridBuild, F <: Function, K}
-  build!(GV, B{p,F}, f, i)#::FlatGrid{p,q} #Should be inferred correctly.
-end
-function calc_grid!(GV::StaticGridVessel{q, B, K, p} where {q <: QuadratureRule}, i::K, f::F, ::Type{T}) where {p, B <: GridBuild, F <: Function, T, K}
-  build!(GV, B{p,F,T}, f, i)#::Tuple{Vector{Float64},Vector{P}} #Should be inferred correctly.
-end
+@inline ind(i::Vector{Int}) = i
+@inline ind(i::Tuple{Int,Vector{Int}}) = i[2]
 
 
 
 
-
-function FlattenedGrid(::Type{Val{p}}, l::Int, ::Type{q}, seq::Vector{Int} = default(q)) where {p, q}
-  grid = NestedGrid(Val{p}, q, seq)
-  smolyak!(grid, l)
-  FlattenedGrid(grid)
+#Oops, the ps for dispatch here should be pulled from R when R <: Static Rank.
+#This would also allow for soemthing cleaner than "Dynamic Inds."
+#Instead: given Val{d} ? use d : use i[1]
+@inline function calc_grid!(Grid::DynamicGridVessel{q, B, K, p} where {q <: QuadratureRule}, i::K, svf::SVF, μ::Vector, U::Matrix) where {p, B <: RawBuild, K, SVF <: SlidingVecFun}
+  build!(Grid, B{p, SVF}, svf, i, μ, U)
 end
-function FlatGrid(::Type{Val{p}}, l::Int, ::Type{q}, seq::Vector{Int} = default(q)) where {p, q}
-  grid = NestedGrid(Val{p}, q, seq)
-  smolyak!(grid, l)
-  FlatGrid(grid)
+@inline function calc_grid!(Grid::DynamicGridVessel{q, B, K, p} where {q <: QuadratureRule}, i::K, svf::F, μ::Vector, U::Matrix, ::Type{T}) where {p, B <: CacheBuild, K, F <: Function, T}
+  build!(Grid, B{p, F, T}, svf, i, μ, U)
 end
 
-function flatten_nodes_and_weights(Grid::NestedGrid{p,q}) where {p,q}
+
+#This is probably really bad, but these indices "K" are used by JointPosteriors when a dynamic dispatch on grid construction is necessary.
+#In this case, these sets of tuples are generated for Dynamic Rank models, where the dimensionality is reduced by variable amounts via LDR.
+#If one has an idea of how many parameters they wish to keep, "Fixed{p}" is better LDR because it allows us to avoid this dynamic dispatch.
+DynamicInds = Union{Tuple{Int,Int,Int},Tuple{Int,Vector{Int}}}
+function calc_grid!(Grid::DynamicGridVessel{q, B, K, p, N, C} where {q <: QuadratureRule}, i::K, svf::SVF, μ::Vector, U::Matrix) where {p, B <: RawBuild, K <: DynamicInds, SVF <: SlidingVecFun, N, C}
+  build!(Grid, B{i[1], SVF}, svf, i, μ, U)::FlatGrid{q,N,C}
+end
+function calc_grid!(Grid::DynamicGridVessel{q, B, K, p, N, C} where {q <: QuadratureRule}, i::K, f::F, μ::Vector, U::Matrix, ::Type{T}) where {p, B <: CacheBuild, K <: DynamicInds, N, F, C, T}
+  build!(Grid, B{i[1], F, T}, f, i, μ, U)::FlatGrid{q,N,C}
+end
+
+function eval_grid!( Grid::G, svf::SlidingVecFun, μ::Vector, U::Matrix, i::K ) where {q, B, K, G <: GridVessel{q, B, K}}
+    haskey(Grid.grids, i) ? eval_grid!(Grid.grids[i], svf, μ, U) : calc_grid!(Grid, i, svf, μ, U)
+end
+function eval_grid!( Grid::G, f::Function, μ::Vector, U::Matrix, i::K, ::Type{MP} ) where {q, B, K, G <: GridVessel{q, B, K}, MP}
+    haskey(Grid.grids, i) ? eval_grid!(Grid.grids[i], f, μ, U, MP) : calc_grid!(Grid, i, f, μ, U, MP)
+end
+
+
+
+
+
+@inline calc_baseline(::Type{GenzKeister}, n::Vector{SVector{p,T}}) where {p,T} = sum.(abs2, n)
+@inline calc_baseline(::Type{KronrodPatterson}, n::Vector{SVector{p,T}}) where {p,T} = sum.(log_sigmoid_jacobian, n)
+
+@inline transform_nodes(::Type{GenzKeister}, ::Type{N} where N, n) = n
+@inline transform_nodes(::Type{KronrodPatterson}, ::Type{Matrix{Float64}}, n) = sigmoid.(mat(n))
+function transform_nodes(::Type{KronrodPatterson}, ::Type{Vector{SVector{p,Float64}}}, n::Vector{SVector{p,Float64}}) where p
+    @inbounds for (i, j) ∈ enumerate(n)
+        n[i] = sigmoid.(j)
+    end
+    n
+end
+function FlatGrid(::Type{<:SmolyakBuild{q,d}}, seq::Vector{Int}, ::Type{p}, ::Type{N}, ::Type{C}) where {q,d,p,N,C}
+  grid = NestedGrid(p, q, seq)
+  smolyak!(grid, length(seq))
+  FlatGrid(grid, p, N, C)
+end
+function FlatGrid(Grid::NestedGrid{d,q}, ::Type{p}, ::Type{N}, ::Type{C}) where {q,d,p,N,C}
   n = length(Grid.grid)
-  nodes = Array{Float64,2}(p,n)
+  nodes = Vector{SVector{d,Float64}}(n)
   weights = Vector{Float64}(n)
   @inbounds for (i, (j,k)) ∈ enumerate(Grid.grid.w)
     weights[i] = k
-    nodes[:,i] .= get_node.(Grid, j)
-  end
-  nodes, weights
-end
-function flat_nodes_and_weights(Grid::NestedGrid{p,q}) where {p,q}
-  n = length(Grid.grid)
-  nodes = Vector{SVector{p,Float64}}(n)
-  weights = Vector{Float64}(n)
-  for (i, (j,k)) ∈ enumerate(Grid.grid.w)
-    weights[i] = k
     nodes[i] = get_node.(Grid, j)
   end
-  nodes, weights
+  base = calc_baseline(q, nodes)
+  FlatGrid(transform_nodes(q, N, nodes), weights, base, Vector{Float64}(n), q, N, C, p, n)
 end
-
-function FlattenedGrid(Grid::NestedGrid{p,q}) where {p,q<:NestedQuadratureRule}
-  nodes, weights = flatten_nodes_and_weights(Grid)
-  FlattenedGrid(nodes, weights, q)
-end
-FlattenedGrid(n::Array{Float64,2}, w::Vector{Float64}, ::Type{GenzKeister}) = FlattenedGrid(n, w, vec(sum(abs2, n, [1])), GenzKeister)
-FlattenedGrid(n::Array{Float64,2}, w::Vector{Float64}, ::Type{KronrodPatterson}) = FlattenedGrid(n, w, zeros(w), KronrodPatterson)
-function FlattenedGrid(n::Array{Float64,2}, w::Vector{Float64}, b::Vector{Float64}, ::Type{q}) where {q}
-  FlattenedGrid{q}(n, w, b, similar(b))
-end
-function FlattenedGrid(ab::AdaptiveBuild{GenzKeister,p,F}) where {p,F}
+function FlatGrid(ab::Adaptive{q,d,F}, ::Type{N}, ::Type{C}, ::Type{Val{p}}) where {q,d,p,F,N,C}
   n = length(ab.Grid.grid)
-  nodes = Array{Float64,2}(p,n)
-  weights = Vector{Float64}(n)
-  baseline = Vector{Float64}(n)
-  @inbounds for (i, (j,k)) ∈ enumerate(ab.Grid.grid.w)
-    weights[i] = k
-    nodes[:,i] .= get_node(ab, j)
-    baseline[i] = ab.baseline_cache[j]
-  end
-  FlattenedGrid{GenzKeister}(nodes, weights, baseline, Vector{Float64}(n))
-end
-function FlattenedGrid(ab::AdaptiveBuild{KronrodPatterson,p,F}) where {p,F}
-  n = length(ab.Grid.grid)
-  nodes = Array{Float64,2}(p,n)
-  weights = Vector{Float64}(n)
-  @inbounds for (i, (j,k)) ∈ enumerate(ab.Grid.grid.w)
-    weights[i] = k
-    nodes[:,i] .= get_node(ab, j)
-  end
-  FlattenedGrid{KronrodPatterson}(nodes, weights, Vector{Float64}(n), Vector{Float64}(n))
-end
-function FlatGrid(Grid::NestedGrid{p,q}) where {p,q<:NestedQuadratureRule}
-  nodes, weights = flat_nodes_and_weights(Grid)
-  FlatGrid(nodes, weights, q)
-end
-FlatGrid(n::Vector{SVector{p,Float64}} where p, w::Vector{Float64}, ::Type{GenzKeister}) = FlatGrid(n, w, sum.(abs2, n), GenzKeister)
-FlatGrid(n::Vector{SVector{p,Float64}} where p, w::Vector{Float64}, ::Type{KronrodPatterson}) = FlatGrid(n, w, zeros(w), KronrodPatterson)
-function FlatGrid(n::Vector{SVector{p,Float64}}, w::Vector{Float64}, b::Vector{Float64}, ::Type{q}) where {p,q}
-  FlatGrid{p,q}(n, w, b, similar(b))
-end
-function FlatGrid(ab::AdaptiveBuild{GenzKeister,p,F}) where {p,F}
-  n = length(ab.Grid.grid)
-  nodes = Vector{SVector{p,Float64}}(n)
+  nodes = Vector{SVector{d,Float64}}(n)
   weights = Vector{Float64}(n)
   baseline = Vector{Float64}(n)
   @inbounds for (i, (j,k)) ∈ enumerate(ab.Grid.grid.w)
@@ -253,76 +206,32 @@ function FlatGrid(ab::AdaptiveBuild{GenzKeister,p,F}) where {p,F}
     nodes[i] = get_node(ab, j)
     baseline[i] = ab.baseline_cache[j]
   end
-  FlatGrid{p,GenzKeister}(nodes, weights, baseline, Vector{Float64}(n))
+  FlatGrid(nodes, weights, baseline, Vector{Float64}(n), q, N, C, Val{p}, n)
 end
-function FlatGrid(ab::AdaptiveBuild{KronrodPatterson,p,F}) where {p,F}
+function FlatGrid(ab::AdaptiveRaw{q,d,F}, ::Type{N}, ::Type{C}, ::Type{Val{p}}) where {q,d,p,F,N,C}
   n = length(ab.Grid.grid)
-  nodes = Vector{SVector{p,Float64}}(n)
+  nodes = Vector{SVector{d,Float64}}(n)
   weights = Vector{Float64}(n)
+  baseline = Vector{Float64}(n)
   @inbounds for (i, (j,k)) ∈ enumerate(ab.Grid.grid.w)
     weights[i] = k
     nodes[i] = get_node(ab, j)
+    baseline[i] = ab.baseline_cache[j]
   end
-  FlatGrid{p,KronrodPatterson}(nodes, weights, Vector{Float64}(n), Vector{Float64}(n))
+  FlatGrid(nodes, weights, baseline, Vector{Float64}(n), q, N, C, Val{p}, n)
+end
+@inline function FlatGrid(nodes::Vector{SVector{d,Float64}} where d, weights::Vector, baseline::Vector, density::Vector, ::Type{q}, ::Type{Matrix{Float64}}, ::Type{Matrix{Float64}}, ::Type{Val{p}}, n::Int) where {q, p}
+    FlatGrid{q, Matrix{Float64}, Matrix{Float64}}(mat(nodes), Array{Float64,2}( p , n ), weights, density, baseline)
+end
+@inline function FlatGrid(nodes::N, weights::Vector, baseline::Vector, density::Vector, ::Type{q}, ::Type{N}, ::Type{C}, ::Type{Val{p}}, n::Int) where {q, p, N, C}
+    FlatGrid{q, N, C}(nodes, convert(C, Vector{SVector{p,Float64}}(n)), weights, density, baseline)
+end
+@inline function FlatGrid(nodes::Vector{SVector{d,Float64}} where d, weights::Vector, baseline::Vector, density::Vector, ::Type{q}, ::Type{Matrix{Float64}}, ::Type{MatrixVecSVec{p,Float64}}, ::Type{Val{p}}, n::Int) where {q, p}
+    FlatGrid{q, Matrix{Float64}, MatrixVecSVec{p,Float64}}(mat(nodes),
+    MatrixVecSVec(Matrix{Float64}(p,n), Val{$p}), weights, density, baseline)
 end
 
-
-function getindex(g::GridContainer{p, q} where {p}, i::Int) where {q}
-  get!(() -> FlattenedGrid(i, g.l, q, g.seq), g.grids, i)
-end
 mats(mc::MatrixCache{p}, r) where p = get!(() -> Array{Float64,2}(p,r), mc.d, r)
-mats(g::GridVessel, r::Int) = mats(g.mats, r)
-
-GridContainer(p::Int,l::Int = 6,::Type{q} = GenzKeister,seq::Vector{Int} = default(q)) where {q} = GridContainer{p,q}(Dict{Tuple{Int,Int},FlattenedGrid{q}}(), zeros(p,p), l, seq, Dict{Int,Array{Float64,2}}())
-
-function SplitWeights(p::Int64, total_count::Int64, negative_count::Int64, q::DataType)
-  positive_count = total_count - negative_count
-  SplitWeights{p,q}(Array{Float64,2}(p, positive_count), Array{Float64,2}(p, negative_count), Array{Float64,1}(positive_count), Array{Float64,1}(negative_count), Array{Float64,1}(positive_count), Array{Float64,1}(negative_count), Array{Float64,1}(2), total_count)
-end
-
-function SplitWeights(Grid::NestedGrid{p,q}) where {p, q <: NestedQuadratureRule}
-#  nodes = maximum(values(Grid.Qs)).n
-#  complete_grid = sum(values(Grid.Δ_prods))
-  G = SplitWeights(p, length(Grid.grid), sum([i < 0 for i ∈ values(Grid.grid)]), q)
-  nc = 0; pc = 0
-  @inbounds for (i, w) ∈ Grid.grid.w
-    w < 0 ? begin
-      nc += 1
-      G.nodes_negative[:,nc] .= get_node.(Grid, i)
-      G.weights_negative[nc] = w
-    end : begin
-      pc += 1
-      G.nodes_positive[:,pc] .= get_node.(Grid, i)
-      G.weights_positive[pc] = w
-    end
-  end
-  set_baseline!(G)
-  G
-end
-
-function SplitWeights(p::Int, l::Int, ::Type{q}) where {q <: QuadratureRule}
-  grid = NestedGrid(p, q)
-  smolyak!(grid, l)
-  SplitWeights(grid)
-end
-function SplitWeights(p::Int, l::Int, ::Type{q}, seq::Vector{Int}) where {q <: QuadratureRule}
-  grid = NestedGrid(p, q, seq)
-  smolyak!(grid, l)
-  SplitWeights(grid)
-end
-
-
-
-function set_baseline!(Grid::SplitWeights{p, GenzKeister}) where {p}
-  @views Grid.baseline_weights_positive .= sum(abs2, Grid.nodes_positive, [1])[1,:]
-  @views Grid.baseline_weights_negative .= sum(abs2, Grid.nodes_negative, [1])[1,:]
-  Grid.weight_sum[1] = sum(Grid.weights_positive)
-  Grid.weight_sum[2] = sum(Grid.weights_negative)
-end
-
-function set_baseline!(Grid::SplitWeights{p, KronrodPatterson}) where {p}
-  fill!(Grid.baseline_weights_positive, 0.0)
-  fill!(Grid.baseline_weights_negative, 0.0)
-  Grid.weight_sum[1] = sum(Grid.weights_positive)
-  Grid.weight_sum[2] = sum(Grid.weights_negative)
-end
+mats(mc::MatrixCache{p}) where p = get!(() -> Array{Float64,2}(p,p), mc.d, p)
+@inline mats(g::GridVessel, r::Int) = mats(g.mats, r)
+@inline mats(g::GridVessel) = mats(g.mats)

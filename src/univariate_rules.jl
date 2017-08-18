@@ -10,8 +10,10 @@ struct KronrodPatterson <: UnitNestedRule
   l::Int64
 end
 function KronrodPatterson(l::Int)
-  dict = load(Pkg.dir("SparseQuadratureGrids")*"/src/rules/KronrodPatterson/l_"*string(l)*".jld")
-  KronrodPatterson(dict["n"], dict["w"], l)
+  @load Pkg.dir("SparseQuadratureGrids")*"/src/rules/KronrodPatterson/l_"*string(l)*".jld2" n w
+  n::Dict{Int64,Float64}
+  w::Dict{Int64,Float64}
+  KronrodPatterson(n, w, l)
 end
 struct GenzKeister <: UnconstrainedNestedRule
 #  nw::Dict{Int64,Tuple{Float64,Float64}}
@@ -20,8 +22,10 @@ struct GenzKeister <: UnconstrainedNestedRule
   l::Int64
 end
 function GenzKeister(l::Int)
-  dict = load(Pkg.dir("SparseQuadratureGrids")*"/src/rules/GenzKeister/l_"*string(l)*".jld")
-  GenzKeister(dict["n"], dict["w"], l)
+  @load Pkg.dir("SparseQuadratureGrids")*"/src/rules/GenzKeister/l_"*string(l)*".jld2" n w
+  n::Dict{Int64,Float64}
+  w::Dict{Int64,Float64}
+  GenzKeister(n, w, l)
 end
 function delay_sequence(base_seq)
   seq = [1]
@@ -36,11 +40,11 @@ function delay_sequence(base_seq)
   end
   seq
 end
-default(::Any) = throw("Default unimplemented for grid type " * string(q) * ".")
+default(::Type{q}) where q = throw("Default unimplemented for grid type " * string(q) * ".")
 default(::Type{GenzKeister}) = [1, 3, 9, 19, 35, 103]
 default(::Type{KronrodPatterson}) = [1, 3, 7, 15, 31, 63]
-delayed(::Type{GenzKeister}) = [1, 3, 3, 9, 9, 9, 9, 19, 19, 19, 19, 19, 19, 19, 19, 35, 35, 35, 35, 35, 35, 35, 35, 35, 35, 35, 35, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103]
-delayed(::Type{KronrodPatterson}) = [1, 3, 3, 7, 7, 7, 15, 15, 15, 15, 15, 15, 31, 31, 31, 31, 31, 31, 31, 31, 31, 31, 31, 31, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63]
+delayed(::Type{GenzKeister}, i::Int = 16) = [1, 3, 3, 9, 9, 9, 9, 19, 19, 19, 19, 19, 19, 19, 19, 35, 35, 35, 35, 35, 35, 35, 35, 35, 35, 35, 35, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103, 103][1:i]
+delayed(::Type{KronrodPatterson}, i::Int = 13) = [1, 3, 3, 7, 7, 7, 15, 15, 15, 15, 15, 15, 31, 31, 31, 31, 31, 31, 31, 31, 31, 31, 31, 31, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63][1:i]
 
 function Base.isless(x::T, y::T) where {T <: NestedQuadratureRule}
   x.l < y.l

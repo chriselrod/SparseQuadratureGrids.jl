@@ -1,4 +1,3 @@
-struct Val{p} end
 struct Δprod{p}
   w::Dict{SVector{p, Int},Float64}
 end
@@ -11,10 +10,10 @@ end
 function Base.:+(x::Δprod{p}...) where p
   Δprod(sum(x.w))
 end
-function Base.setindex!(A::Δprod{p}, x::Float64, i::Int64...) where {p}
+function setindex!(A::Δprod{p}, x::Float64, i::Int64...) where {p}
   A.w[SVector{p,Int64}(i)] = x
 end
-function Base.getindex(A::Δprod{p}, i::SVector{p,Int64}) where p
+function getindex(A::Δprod{p}, i::SVector{p,Int64}) where p
   A.w[i]
 end
 Base.keys(A::Δprod) = keys(A.w)
@@ -29,8 +28,6 @@ struct NestedGrid{p, q <: NestedQuadratureRule}
   node_value::Dict{Int64,Float64}
   seq::Array{Int64,1}
   grid::Δprod{p}
-#  w::Dict{SVector{p, Int64}, Float64}
-
 end
 function NestedGrid(::Type{Val{p}}, ::Type{q}) where {p, q <: NestedQuadratureRule}
   NestedGrid{p, q}(Dict{Int64,q}(), Dict{Int64,Δ{q}}(), Dict{SVector{p, Int64}, Δprod}(), Dict{Int64,Float64}(), default(q), Δprod(Val{p}))
