@@ -7,25 +7,6 @@ using Base.Test
 Base.var(::Type{GenzKeister}) = 1/2
 Base.var(::Type{KronrodPatterson}) = 1/3
 
-gk = [1, 3, 9, 19, 35, 103];
-kp = [1, 3, 7, 15, 31, 63];
-for i ∈ eachindex(gk)
-    gkname = Pkg.dir("SparseQuadratureGrids")*"/src/rules/KronrodPatterson/l_"*string(gk[i])*".jld"
-    kpname = Pkg.dir("SparseQuadratureGrids")*"/src/rules/KronrodPatterson/l_"*string(kp[i])*".jld"
-    dictgk = JLD.load(gkname)
-    dictkp = JLD.load(kpname)
-
-    gkname *= "2"
-    kpname *= "2"
-
-    n = dictgk["n"]
-    w = dictgk["w"]
-    JLD2.@save gkname n w
-    n = dictkp["n"]
-    w = dictkp["w"]
-    JLD2.@save kpname n w
-end
-
 p = 40, n = 1000
 Am = randn(p, n);
 Bsv = [StaticArrays.SVector{p}(randn(p)) for i ∈ 1:n];

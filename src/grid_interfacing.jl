@@ -65,11 +65,17 @@ end
 
 @inline eval_f!(g::FlatGrid, cache::MatrixVecSVec{p,Float64}, f::Function, ::Type{T}) where {p,T} = eval_f!(g, cache.S, f, T)
 function eval_f!(g::FlatGrid, cache::Vector{SVector{p,Float64}}, f::Function, ::Type{T}) where {p,T}
-    param_cache = Vector{T}( length( g.weights ) )
-    @inbounds for (i,j) ∈ enumerate( cache )
-        f_val, param_cache[i] = f( j )
+    param_cache = map( enumerate( cache ) ) do k
+        i, j = k
+        f_val, p_cache = f( j )
         g.density[i] = g.weights[i] * exp( g.baseline[i] + f_val )
+        p_cache
     end
+#    Vector{T}( length( g.weights ) )
+#    @inbounds for (i,j) ∈ enumerate( cache )
+#        f_val, param_cache[i] = f( j )
+#        g.density[i] = g.weights[i] * exp( g.baseline[i] + f_val )
+#    end
     g.density ./= sum(g.density)
     param_cache, g.density
 end
@@ -114,7 +120,7 @@ function density(ab::AdaptiveRaw{q, d, F} where F, ::Type{N}, ::Type{C}, ::Type{
   FlatGrid{q,N,C}(convert(N,nodes), convert(C,cache), weights, density, Vector{Float64}(n))
 end
 
-function build!(GV::DynamicGridVessel{q, B, K, p, N, C}, ::Type{Bc}, f, i::K, μ::Vector, U::Matrix, l::Int = 6) where {q, p, d, B <: AdaptiveBuild{q}, Bc <: AdaptiveBuild{q, d}, K, N, C}
+ @noinline function build!(GV::DynamicGridVessel{q, B, K, p, N, C}, ::Type{Bc}, f, i::K, μ::Vector, U::Matrix, l::Int = 6) where {q, p, d, B <: AdaptiveBuild{q}, Bc <: AdaptiveBuild{q, d}, K, N, C}
   ab = Adapt(Bc, f, l, i[end], SVector{p}(μ), SizedArray{Tuple{p,d}}(U))
   GV.grids[i] = FlatGrid(ab, N, C, Val{p})
   for v ∈ values(ab.Neighbors)
